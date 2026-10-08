@@ -1,5 +1,5 @@
 """
-Uso:  python scripts/ver_sesgo_0dte.py 2026-09-29 7600 7750
+Uso:  python scripts/odte/ver_sesgo_0dte.py 2026-09-29 7600 7750
 Control de sesgo del trade sign (todo desde caché, sin costo):
   1) Compras vs ventas por TAMAÑO de trade (retail chico vs bloques grandes)
   2) DÓNDE se imprimió cada trade respecto al bid/ask (detecta spreads / órdenes complejas)
@@ -9,12 +9,15 @@ import sys
 
 import pandas as pd
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# scripts/odte/ -> sube 3 niveles hasta la raíz del proyecto
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from src.cero_dte import seleccionar_0dte, descargar_tcbbo_0dte, clasificar_trades
+from src.odte.catalogo import seleccionar_0dte
+from src.odte.trades import descargar_tcbbo_0dte
+from src.odte.clasificacion import clasificar_trades
 
 if len(sys.argv) < 4:
-    raise SystemExit("Uso: python scripts/ver_sesgo_0dte.py AAAA-MM-DD STRIKE_MIN STRIKE_MAX")
+    raise SystemExit("Uso: python scripts/odte/ver_sesgo_0dte.py AAAA-MM-DD STRIKE_MIN STRIKE_MAX")
 
 fecha = sys.argv[1]
 kmin, kmax = float(sys.argv[2]), float(sys.argv[3])

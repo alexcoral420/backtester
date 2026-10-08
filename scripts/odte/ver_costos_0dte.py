@@ -1,6 +1,6 @@
 """
-Uso:  python scripts/ver_costos_0dte.py 2026-10-02 [desde] [hasta]
-      python scripts/ver_costos_0dte.py 2026-10-02 09:30 11:00
+Uso:  python scripts/odte/ver_costos_0dte.py 2026-10-02 [desde] [hasta]
+      python scripts/odte/ver_costos_0dte.py 2026-10-02 09:30 11:00
 
 Antes de bajar el tcbbo (lo caro), muestra el rango del SPX en esa franja
 y el COSTO de varias ventanas de strikes. No descarga trades.
@@ -9,12 +9,15 @@ y el COSTO de varias ventanas de strikes. No descarga trades.
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# scripts/odte/ -> sube 3 niveles hasta la raíz del proyecto
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from src.cero_dte import seleccionar_0dte, spx_1min, costo_tcbbo_0dte
+from src.odte.catalogo import seleccionar_0dte
+from src.odte.precio import spx_1min
+from src.odte.trades import costo_tcbbo_0dte
 
 if len(sys.argv) < 2:
-    raise SystemExit("Uso: python scripts/ver_costos_0dte.py AAAA-MM-DD [desde HH:MM] [hasta HH:MM]")
+    raise SystemExit("Uso: python scripts/odte/ver_costos_0dte.py AAAA-MM-DD [desde HH:MM] [hasta HH:MM]")
 
 fecha = sys.argv[1]
 desde = sys.argv[2] if len(sys.argv) > 2 else "09:30"
@@ -38,5 +41,5 @@ for ancho in (15, 25, 40, 60):
     print(f"{kmin:>7.0f}-{kmax:<7.0f} {len(sel)//2:>8d} {len(sel):>9d} {costo:>8.2f}$  {cubre}")
 
 print("\nElige la ventana y descarga con:")
-print(f"  python scripts/ver_flujo_0dte.py {fecha} KMIN KMAX   (día completo)")
+print(f"  python scripts/odte/ver_flujo_0dte.py {fecha} KMIN KMAX   (día completo)")
 print("  (si eliges franja horaria, avísame y adapto los scripts de flujo a esa franja)")

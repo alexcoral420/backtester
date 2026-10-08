@@ -1,5 +1,5 @@
 """
-Uso:  python scripts/ver_flujo_0dte.py 2026-09-29 7600 7750
+Uso:  python scripts/odte/ver_flujo_0dte.py 2026-09-29 7600 7750
 Trade sign minuto a minuto de las 0DTE + gráfico (todo desde caché, sin costo).
 """
 import os
@@ -8,13 +8,17 @@ import sys
 import matplotlib.pyplot as plt
 import pandas as pd
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# scripts/odte/ -> sube 3 niveles hasta la raíz del proyecto
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from src.cero_dte import (seleccionar_0dte, descargar_tcbbo_0dte, spx_1min,
-                          clasificar_trades, flujo_por_minuto)
+from src.odte.catalogo import seleccionar_0dte
+from src.odte.precio import spx_1min
+from src.odte.trades import descargar_tcbbo_0dte
+from src.odte.clasificacion import clasificar_trades
+from src.odte.flujo import flujo_por_minuto
 
 if len(sys.argv) < 4:
-    raise SystemExit("Uso: python scripts/ver_flujo_0dte.py AAAA-MM-DD STRIKE_MIN STRIKE_MAX")
+    raise SystemExit("Uso: python scripts/odte/ver_flujo_0dte.py AAAA-MM-DD STRIKE_MIN STRIKE_MAX")
 
 fecha = sys.argv[1]
 kmin, kmax = float(sys.argv[2]), float(sys.argv[3])

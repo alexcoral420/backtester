@@ -1,16 +1,17 @@
 """
-Uso:  python scripts/ver_spx_1min.py 2026-09-29
+Uso:  python scripts/odte/ver_spx_1min.py 2026-09-29
 Muestra el SPX estimado (ES - base) en barras de 1 minuto del horario regular.
 """
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# scripts/odte/ -> sube 3 niveles hasta la raíz del proyecto
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from src.cero_dte import spx_1min
+from src.odte.precio import spx_1min
 
 if len(sys.argv) < 2:
-    raise SystemExit("Uso: python scripts/ver_spx_1min.py AAAA-MM-DD")
+    raise SystemExit("Uso: python scripts/odte/ver_spx_1min.py AAAA-MM-DD")
 
 fecha = sys.argv[1]
 df, base = spx_1min(fecha)

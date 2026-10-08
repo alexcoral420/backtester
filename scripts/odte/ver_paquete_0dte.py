@@ -1,6 +1,6 @@
 """
-Uso:  python scripts/ver_paquete_0dte.py FECHA HH:MM:SS KMIN KMAX [seg_antes] [seg_despues] [size_min]
-      python scripts/ver_paquete_0dte.py 2026-10-02 09:50:57 7500 7900
+Uso:  python scripts/odte/ver_paquete_0dte.py FECHA HH:MM:SS KMIN KMAX [seg_antes] [seg_despues] [size_min]
+      python scripts/odte/ver_paquete_0dte.py 2026-10-02 09:50:57 7500 7900
 
 Busca TODAS las patas de una orden compleja: baja el tcbbo de todas las 0DTE
 (calls y puts) en [KMIN, KMAX], pero solo unos segundos alrededor de HH:MM:SS.
@@ -11,9 +11,11 @@ import sys
 
 import pandas as pd
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# scripts/odte/ -> sube 3 niveles hasta la raíz del proyecto
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from src.cero_dte import seleccionar_0dte, descargar_tcbbo_0dte
+from src.odte.catalogo import seleccionar_0dte
+from src.odte.trades import descargar_tcbbo_0dte
 
 if len(sys.argv) < 5:
     raise SystemExit(__doc__)

@@ -1,6 +1,6 @@
 """
-Uso:  python scripts/ver_apertura_0dte.py 2026-10-02 7695 7775 [desde] [hasta] [bloque_min]
-      python scripts/ver_apertura_0dte.py 2026-10-02 7695 7775 09:30 11:00 5
+Uso:  python scripts/odte/ver_apertura_0dte.py 2026-10-02 7695 7775 [desde] [hasta] [bloque_min]
+      python scripts/odte/ver_apertura_0dte.py 2026-10-02 7695 7775 09:30 11:00 5
 
 Flujo 0DTE en una FRANJA del día (pensado para la apertura después de una noticia).
 - Gap de apertura vs cierre anterior (cómo recibió el mercado la noticia)
@@ -16,13 +16,17 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import yfinance as yf
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# scripts/odte/ -> sube 3 niveles hasta la raíz del proyecto
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from src.cero_dte import (seleccionar_0dte, descargar_tcbbo_0dte, spx_1min,
-                          clasificar_trades, flujo_por_minuto)
+from src.odte.catalogo import seleccionar_0dte
+from src.odte.precio import spx_1min
+from src.odte.trades import descargar_tcbbo_0dte
+from src.odte.clasificacion import clasificar_trades
+from src.odte.flujo import flujo_por_minuto
 
 if len(sys.argv) < 4:
-    raise SystemExit("Uso: python scripts/ver_apertura_0dte.py AAAA-MM-DD KMIN KMAX [desde] [hasta] [bloque]")
+    raise SystemExit("Uso: python scripts/odte/ver_apertura_0dte.py AAAA-MM-DD KMIN KMAX [desde] [hasta] [bloque]")
 
 fecha = sys.argv[1]
 kmin, kmax = float(sys.argv[2]), float(sys.argv[3])

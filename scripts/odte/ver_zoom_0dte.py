@@ -1,6 +1,6 @@
 """
-Uso:  python scripts/ver_zoom_0dte.py FECHA KMIN KMAX ZOOM_DESDE ZOOM_HASTA [CACHE_DESDE CACHE_HASTA]
-      python scripts/ver_zoom_0dte.py 2026-10-02 7695 7775 09:45 10:05 09:30 11:00
+Uso:  python scripts/odte/ver_zoom_0dte.py FECHA KMIN KMAX ZOOM_DESDE ZOOM_HASTA [CACHE_DESDE CACHE_HASTA]
+      python scripts/odte/ver_zoom_0dte.py 2026-10-02 7695 7775 09:45 10:05 09:30 11:00
 
 Zoom SOLO desde caché (nunca descarga): minuto a minuto + quién vendió/compró los puts
 (por tamaño de trade, los trades más grandes y por strike).
@@ -11,10 +11,15 @@ import sys
 
 import pandas as pd
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# scripts/odte/ -> sube 3 niveles hasta la raíz del proyecto
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from src.cero_dte import (ZONA_NY, seleccionar_0dte, ruta_cache_tcbbo, spx_1min,
-                          clasificar_trades, flujo_por_minuto)
+from src.odte.constantes import ZONA_NY
+from src.odte.catalogo import seleccionar_0dte
+from src.odte.precio import spx_1min
+from src.odte.trades import ruta_cache_tcbbo
+from src.odte.clasificacion import clasificar_trades
+from src.odte.flujo import flujo_por_minuto
 
 if len(sys.argv) < 6:
     raise SystemExit(__doc__)

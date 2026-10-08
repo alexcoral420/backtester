@@ -1,16 +1,18 @@
 """
-Uso:  python scripts/ver_trades_0dte.py 2026-09-29 7600 7750
+Uso:  python scripts/odte/ver_trades_0dte.py 2026-09-29 7600 7750
 Baja e inspecciona los trades (tcbbo) de las 0DTE con strike en ese rango.
 """
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# scripts/odte/ -> sube 3 niveles hasta la raíz del proyecto
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from src.cero_dte import seleccionar_0dte, descargar_tcbbo_0dte
+from src.odte.catalogo import seleccionar_0dte
+from src.odte.trades import descargar_tcbbo_0dte
 
 if len(sys.argv) < 4:
-    raise SystemExit("Uso: python scripts/ver_trades_0dte.py AAAA-MM-DD STRIKE_MIN STRIKE_MAX")
+    raise SystemExit("Uso: python scripts/odte/ver_trades_0dte.py AAAA-MM-DD STRIKE_MIN STRIKE_MAX")
 
 fecha = sys.argv[1]
 kmin, kmax = float(sys.argv[2]), float(sys.argv[3])
