@@ -1,0 +1,23 @@
+# Entorno virtual (se reconstruye con requirements.txt)
+venv/
+.venv/
+
+# Caché de Python
+__pycache__/
+*.pyc
+
+# Datos descargados: caros de bajar, pero pesados y no son código
+data/raw/
+*.parquet
+
+# Gráficos generados (se regeneran desde la caché)
+data/*.png
+
+# Secretos (por si algún día usas un archivo .env)
+.env
+
+# Archivos del sistema / editor
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
