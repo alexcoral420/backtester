@@ -2,7 +2,7 @@
 Uso:  python scripts/odte/ver_zoom_0dte.py FECHA KMIN KMAX ZOOM_DESDE ZOOM_HASTA [CACHE_DESDE CACHE_HASTA]
       python scripts/odte/ver_zoom_0dte.py 2026-10-02 7695 7775 09:45 10:05 09:30 11:00
 
-Zoom SOLO desde caché (nunca descarga): minuto a minuto + quién vendió/compró los puts
+Zoom SOLO desde caché (nunca descarga): minuto a minuto + quién vendió/compró calls y puts
 (por tamaño de trade, los trades más grandes y por strike).
 CACHE_DESDE/HASTA = la franja con la que se descargó el archivo (por defecto 09:30-16:00).
 """
@@ -60,41 +60,43 @@ print(f"\n=== Minuto a minuto {z_desde}-{z_hasta} (regla ESTRICTA) ===")
 print(f"{'Min':>5s} {'SPX':>9s} {'Calls':>8s} {'Puts':>8s} {'Neto alc.':>10s}")
 for t in flujo.index:
     c, p = int(flujo.at[t, "flujo_C"]), int(flujo.at[t, "flujo_P"])
-    marca = "  <- mínimo" if t == spx_z.idxmin() else ""
+    marca = ("  <- mínimo" if t == spx_z.idxmin() else
+             "  <- máximo" if t == spx_z.idxmax() else "")
     print(f"{t:%H:%M} {spx_z[t]:>9.2f} {c:>+8,d} {p:>+8,d} {c - p:>+10,d}{marca}")
 
 # ============================================================
-# 2) PUTS: ¿muchos trades chicos o pocas órdenes grandes?
+# 2-4) Para CALLS y para PUTS: tamaño de trade, trades más grandes y strikes
 # ============================================================
-puts = clas[(clas["instrument_class"] == "P") & (clas["signo"] != 0)]
 cortes = [0, 10, 49, 99, float("inf")]
 etiquetas = ["1-10 (retail)", "11-49", "50-99", "100+ (bloques)"]
-puts = puts.assign(tamano=pd.cut(puts["size"], bins=cortes, labels=etiquetas))
 
-tabla = puts.groupby("tamano", observed=False).agg(
-    trades=("size", "size"),
-    vendidos=("flujo", lambda f: int(-f[f < 0].sum())),
-    comprados=("flujo", lambda f: int(f[f > 0].sum())),
-    neto=("flujo", "sum"),
-)
-tabla["% del neto"] = (tabla["neto"] / tabla["neto"].sum() * 100).round(1)
-print(f"\n=== PUTS por tamaño de trade ({z_desde}-{z_hasta}) ===")
-print(tabla)
+for tipo, nombre in [("C", "CALLS"), ("P", "PUTS")]:
+    sub = clas[(clas["instrument_class"] == tipo) & (clas["signo"] != 0)]
+    if sub.empty:
+        print(f"\n(sin trades clasificados de {nombre} en la ventana)")
+        continue
+    sub = sub.assign(tamano=pd.cut(sub["size"], bins=cortes, labels=etiquetas))
 
-# ============================================================
-# 3) Los 10 trades de puts más grandes
-# ============================================================
-print("\n=== Los 10 trades de PUTS más grandes ===")
-top = puts.nlargest(10, "size")
-for t, f in top.iterrows():
-    lado = "VENTA " if f["signo"] < 0 else "COMPRA"
-    print(f"{t:%H:%M:%S}  {lado}  strike {f['strike_price']:.0f}  size {int(f['size']):>5d}  "
-          f"precio {f['price']:.2f}  (bid {f['bid_px_00']:.2f} / ask {f['ask_px_00']:.2f})")
+    # ¿muchos trades chicos o pocas órdenes grandes?
+    tabla = sub.groupby("tamano", observed=False).agg(
+        trades=("size", "size"),
+        vendidos=("flujo", lambda f: int(-f[f < 0].sum())),
+        comprados=("flujo", lambda f: int(f[f > 0].sum())),
+        neto=("flujo", "sum"),
+    )
+    tabla["% del neto"] = (tabla["neto"] / tabla["neto"].sum() * 100).round(1)
+    print(f"\n=== {nombre} por tamaño de trade ({z_desde}-{z_hasta}) ===")
+    print(tabla)
 
-# ============================================================
-# 4) ¿En qué strikes se movieron los puts?
-# ============================================================
-por_strike = puts.groupby("strike_price")["flujo"].sum().astype("int64")
-por_strike = por_strike[por_strike != 0].sort_values()
-print("\n=== Flujo neto de PUTS por strike (- = el público vendió) ===")
-print(por_strike.head(10).to_string())
+    # los 10 trades más grandes
+    print(f"\n=== Los 10 trades de {nombre} más grandes ===")
+    for t, fila in sub.nlargest(10, "size").iterrows():
+        lado = "VENTA " if fila["signo"] < 0 else "COMPRA"
+        print(f"{t:%H:%M:%S}  {lado}  strike {fila['strike_price']:.0f}  size {int(fila['size']):>5d}  "
+              f"precio {fila['price']:.2f}  (bid {fila['bid_px_00']:.2f} / ask {fila['ask_px_00']:.2f})")
+
+    # en qué strikes
+    por_strike = sub.groupby("strike_price")["flujo"].sum().astype("int64")
+    por_strike = por_strike[por_strike != 0].sort_values()
+    print(f"\n=== Flujo neto de {nombre} por strike (- = el público vendió) ===")
+    print(por_strike.head(10).to_string())
