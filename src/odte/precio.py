@@ -7,9 +7,9 @@ from datetime import datetime, timedelta
 
 import databento as db
 import pandas as pd
-import yfinance as yf
 
 from config import DATABENTO_KEY
+from src.datos import precio_spx as cierre_spx   # única fuente del cierre del SPX
 from .constantes import CARPETA_CACHE, ZONA_NY
 
 
@@ -53,15 +53,6 @@ def descargar_es_1min(fecha: str) -> pd.DataFrame:
     df.to_parquet(ruta)
     print(f"[guardado] {ruta} ({len(df)} barras)")
     return df
-
-
-def cierre_spx(fecha: str) -> float:
-    """Cierre oficial diario del SPX (^GSPC) desde yfinance."""
-    fin = (datetime.strptime(fecha, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
-    hist = yf.Ticker("^GSPC").history(start=fecha, end=fin)
-    if hist.empty:
-        raise RuntimeError(f"yfinance no devolvió cierre del SPX para {fecha}")
-    return float(hist["Close"].iloc[-1])
 
 
 def spx_1min(fecha: str) -> tuple[pd.DataFrame, float]:

@@ -104,9 +104,11 @@ def descargar_trades(simbolos, fecha_inicio, fecha_fin):
 
 
 def precio_spx(fecha):
-    """Baja el cierre del SPX de una fecha (de yfinance).
-    (Sin cambios en este paso: se unifica con odte.precio.cierre_spx en un commit aparte.)"""
+    """Cierre oficial del SPX (^GSPC) de una fecha, desde yfinance.
+    ÚNICA función del proyecto para esto (odte.precio.cierre_spx es un alias de esta).
+    Sin datos (fin de semana, feriado, fecha futura) -> RuntimeError con mensaje claro."""
     fin = (pd.to_datetime(fecha) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
-    spx = yf.download("^GSPC", start=fecha, end=fin, interval="1d", progress=False)
-    spx.columns = spx.columns.droplevel(1) if spx.columns.nlevels > 1 else spx.columns
-    return float(spx["Close"].iloc[0])
+    hist = yf.Ticker("^GSPC").history(start=fecha, end=fin)
+    if hist.empty:
+        raise RuntimeError(f"yfinance no devolvió cierre del SPX para {fecha} (¿fin de semana o feriado?)")
+    return float(hist["Close"].iloc[-1])
