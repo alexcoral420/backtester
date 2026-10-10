@@ -9,6 +9,7 @@ import databento as db
 import pandas as pd
 
 from config import DATABENTO_KEY
+from src.simbolos import parsear_simbolos
 from .constantes import CARPETA_CACHE, DATASET, RAIZ, ZONA_NY
 
 
@@ -63,9 +64,7 @@ def filtrar_0dte(df: pd.DataFrame, fecha: str) -> pd.DataFrame:
     df = df.copy()
     # La columna `expiration` de Databento es una CONVENCIÓN (medianoche UTC), no la hora real.
     # Fuente de verdad: la fecha dentro del símbolo. 'SPXW  261001P03400000' -> '261001'
-    df["fecha_venc"] = pd.to_datetime(
-        df["raw_symbol"].str.split().str[1].str[:6], format="%y%m%d"
-    ).dt.date
+    df["fecha_venc"] = parsear_simbolos(df["raw_symbol"])["venc"].dt.date
     objetivo = pd.Timestamp(fecha).date()
     df = df[df["fecha_venc"] == objetivo].copy()
 

@@ -43,7 +43,8 @@ def _parametros_cadena(raiz, schema, fecha):
                 schema=schema, start=fecha, end=fin)
 
 
-def _ruta_cadena(raiz, schema, fecha):
+def ruta_cadena(raiz, schema, fecha):
+    """Ruta del parquet en caché de una parte de la cadena (ohlcv-1d o statistics)."""
     return os.path.join(CARPETA_CACHE, f"cadena_{raiz}_{schema}_{fecha}.parquet")
 
 
@@ -53,7 +54,7 @@ def descargar_cadena(fecha, raices=("SPX",)):
             ("SPX", "SPXW") = también diarias y semanales.
     Devuelve (precios, oi) con UNA fila por símbolo."""
     pendientes = [(r, s) for r in raices for s in ("ohlcv-1d", "statistics")
-                  if not os.path.exists(_ruta_cadena(r, s, fecha))]
+                  if not os.path.exists(ruta_cadena(r, s, fecha))]
 
     if pendientes:
         cliente = _cliente()
@@ -67,14 +68,14 @@ def descargar_cadena(fecha, raices=("SPX",)):
                 df = cliente.timeseries.get_range(**_parametros_cadena(r, s, fecha)).to_df().reset_index()
             except Exception as e:
                 raise RuntimeError(f"Falló la descarga de {r} {s} del {fecha}: {e}")
-            df.to_parquet(_ruta_cadena(r, s, fecha))
-            _log(f"[guardado] {_ruta_cadena(r, s, fecha)} ({len(df)} filas)")
+            df.to_parquet(ruta_cadena(r, s, fecha))
+            _log(f"[guardado] {ruta_cadena(r, s, fecha)} ({len(df)} filas)")
     else:
         _log(f"[caché] cadena {fecha} ({'+'.join(raices)})")
 
-    ohlcv = pd.concat([pd.read_parquet(_ruta_cadena(r, "ohlcv-1d", fecha)) for r in raices],
+    ohlcv = pd.concat([pd.read_parquet(ruta_cadena(r, "ohlcv-1d", fecha)) for r in raices],
                       ignore_index=True)
-    stats = pd.concat([pd.read_parquet(_ruta_cadena(r, "statistics", fecha)) for r in raices],
+    stats = pd.concat([pd.read_parquet(ruta_cadena(r, "statistics", fecha)) for r in raices],
                       ignore_index=True)
 
     # Open interest: una fila por símbolo, la ÚLTIMA publicada (evita contar dos veces el mismo OI)
