@@ -7,22 +7,17 @@ import numpy as np
 from config import TASA_LIBRE_RIESGO
 from src.black_scholes import calcular_iv, gamma_opcion
 from src.datos import descargar_cadena
-
-
-def _parsear_simbolo(sym):
-    """Extrae vencimiento, tipo (C/P) y strike del símbolo codificado."""
-    codigo = sym.split()[-1]
-    venc = pd.to_datetime(codigo[:6], format="%y%m%d")
-    tipo = codigo[6]
-    strike = int(codigo[7:]) / 1000
-    return pd.Series([venc, tipo, strike])
+from src.simbolos import parsear_simbolos
 
 
 def construir_cadena(fecha, precio_spx):
     """Descarga la cadena, la procesa (IV, gamma) y devuelve la tabla completa."""
     precios, oi = descargar_cadena(fecha)
     c = precios.merge(oi, on="symbol", how="inner")
-    c[["vencimiento", "tipo", "strike"]] = c["symbol"].apply(_parsear_simbolo)
+    info = parsear_simbolos(c["symbol"])
+    c["vencimiento"] = info["venc"]
+    c["tipo"] = info["tipo"]
+    c["strike"] = info["strike"]
     c["T"] = (c["vencimiento"] - pd.to_datetime(fecha)).dt.days / 365
     c = c[c["T"] > 0].copy()
 

@@ -7,6 +7,7 @@ import hashlib
 import numpy as np
 import pandas as pd
 from src.datos import descargar_cadena, descargar_trades
+from src.simbolos import parsear_simbolos
 
 
 def elegir_atm(fecha, precio_spx, vencimiento, n_strikes=3):
@@ -14,9 +15,9 @@ def elegir_atm(fecha, precio_spx, vencimiento, n_strikes=3):
     vencimiento: código tipo '261016'. Devuelve lista de símbolos."""
     precios, _ = descargar_cadena(fecha)
     p = precios.copy()
-    p["codigo"] = p["symbol"].str.split().str[-1]
-    p["venc"] = p["codigo"].str[:6]
-    p["strike"] = p["codigo"].str[7:].astype(int) / 1000
+    info = parsear_simbolos(p["symbol"])
+    p["venc"] = info["venc_codigo"]
+    p["strike"] = info["strike"]
     p = p[p["venc"] == vencimiento].copy()
     p["dist"] = (p["strike"] - precio_spx).abs()
     return p.nsmallest(n_strikes * 2, "dist")["symbol"].tolist()
@@ -26,9 +27,9 @@ def simbolos_de_wall(precios, strike, vencimiento):
     """Devuelve los símbolos del call y put de un strike/vencimiento.
     Recibe la cadena ya descargada (precios), no la re-descarga."""
     p = precios.copy()
-    p["codigo"] = p["symbol"].str.split().str[-1]
-    p["venc"] = p["codigo"].str[:6]
-    p["strike"] = p["codigo"].str[7:].astype(int) / 1000
+    info = parsear_simbolos(p["symbol"])
+    p["venc"] = info["venc_codigo"]
+    p["strike"] = info["strike"]
     sel = p[(p["venc"] == vencimiento) & (p["strike"] == strike)]
     return sel["symbol"].tolist()
 
@@ -52,7 +53,7 @@ def clasificar_flujo(fecha_inicio, fecha_fin, simbolos):
     t["clasif"] = np.where(t["price"] > t["punto_medio"], "COMPRA",
                   np.where(t["price"] < t["punto_medio"], "VENTA", "INDET"))
     t["dia"] = t["ts_recv"].dt.strftime("%Y-%m-%d")
-    t["tipo"] = t["symbol"].str.split().str[-1].str[6]
+    t["tipo"] = parsear_simbolos(t["symbol"])["tipo"]
     return t
 
 

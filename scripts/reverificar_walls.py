@@ -21,16 +21,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.odte.clasificacion import clasificar_trades
 from src.odte.constantes import CARPETA_CACHE, ZONA_NY
+from src.simbolos import parsear_simbolos
 
 
 def parsear(simbolos: pd.Series) -> pd.DataFrame:
-    """'SPX   261016C07800000' -> venc '261016', tipo 'C', strike 7800.0"""
-    codigo = simbolos.str.split().str[-1]
-    return pd.DataFrame({
-        "venc": codigo.str[:6],
-        "tipo": codigo.str[6],
-        "strike": codigo.str[7:].astype(int) / 1000,
-    }, index=simbolos.index)
+    """Vencimiento (código), tipo y strike desde el símbolo, con la función común."""
+    info = parsear_simbolos(simbolos)
+    return info[["venc_codigo", "tipo", "strike"]].rename(columns={"venc_codigo": "venc"})
 
 
 def veredicto(neto: int) -> str:

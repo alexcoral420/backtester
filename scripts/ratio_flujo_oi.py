@@ -29,6 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.odte.clasificacion import clasificar_trades
 from src.odte.constantes import CARPETA_CACHE, DATASET
+from src.simbolos import parsear_simbolos
 
 STAT_OI = 9
 
@@ -112,10 +113,10 @@ for dia, ts in sorted(trades_por_dia.items()):
         "neto_estricto": estricta.groupby("symbol")["flujo"].sum(),
     }).reset_index().merge(oi, on="symbol", how="left")
 
-    codigo = agg["symbol"].str.split().str[-1]
+    info = parsear_simbolos(agg["symbol"])
     agg["dia"] = dia
-    agg["tipo"] = codigo.str[6]
-    agg["strike"] = codigo.str[7:].astype(int) / 1000
+    agg["tipo"] = info["tipo"]
+    agg["strike"] = info["strike"]
     filas.append(agg)
 
 r = pd.concat(filas, ignore_index=True)
