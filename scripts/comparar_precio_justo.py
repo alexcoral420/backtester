@@ -1,5 +1,6 @@
 """
-Uso:  python scripts/comparar_precio_justo.py 2026-09-24
+Uso:  python scripts/comparar_precio_justo.py 2026-09-24      (q = 0, la corrida original)
+      python scripts/comparar_precio_justo.py 2026-09-24 q    (además: A, B, C con el forward medido)
 
 ¿Cambia el GEX si reemplazamos el "último trade del día" por el punto medio bid/ask al cierre?
 Todo desde la caché (statistics + ohlcv de la cadena SPX). Costo $0. No cambia el proyecto.
@@ -19,15 +20,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import TASA_LIBRE_RIESGO
 from src.black_scholes import calcular_iv, gamma_opcion
 from src.datos import precio_spx
+from src.forward import forward_por_vencimiento, q_por_opcion
 from src.gex import gamma_walls
 from src.precio_justo import tabla_cierre
 
 fecha = sys.argv[1] if len(sys.argv) > 1 else "2026-09-24"
+con_q = len(sys.argv) > 2 and sys.argv[2] == "q"
 S, r = precio_spx(fecha), TASA_LIBRE_RIESGO
 
 c = tabla_cierre(fecha)
 c["mid_valido"] = c["mid"].notna()
 c = c[c["T"] > 0].copy()
+c["q"] = q_por_opcion(c, forward_por_vencimiento(c, S, r)) if con_q else 0.0
 
 print(f"=== {fecha} | SPX {S:.2f} | {len(c):,} opciones con OI y T > 0 ===\n")
 
@@ -55,11 +59,12 @@ print(f"  diferencia relativa con el punto medio: mediana {dif_rel.median():.1%}
 # ------------------------------------------------------------
 # 3) IV y GEX de las tres versiones
 # ------------------------------------------------------------
-def calcular(df, col_precio):
+def calcular(df, col_precio, usar_q=False):
     d = df.copy()
-    d["iv"] = [calcular_iv(p, S, k, T, r, tp) for p, k, T, tp in
-               zip(d[col_precio], d["strike"], d["T"], d["tipo"])]
-    d["gamma"] = [gamma_opcion(S, k, T, r, v) for k, T, v in zip(d["strike"], d["T"], d["iv"])]
+    q = d["q"] if usar_q else pd.Series(0.0, index=d.index)
+    d["iv"] = [calcular_iv(p, S, k, T, r, tp, qq) for p, k, T, tp, qq in
+               zip(d[col_precio], d["strike"], d["T"], d["tipo"], q)]
+    d["gamma"] = [gamma_opcion(S, k, T, r, v, qq) for k, T, v, qq in zip(d["strike"], d["T"], d["iv"], q)]
     d["signo"] = np.where(d["tipo"] == "C", 1, -1)
     d["gex_contrib"] = d["gamma"] * d["open_interest"] * d["signo"] * 100 * S**2 * 0.01
     return d
@@ -89,3 +94,20 @@ print("\n=== Walls (zonas de 25 pts) ===")
 for nombre, d in [("A", A), ("B", B), ("C", C)]:
     arriba, abajo = gamma_walls(d.dropna(subset=["gex_contrib"]), S, n=5)
     print(f"{nombre}  arriba: {[int(x) for x in arriba['nivel']]}   abajo: {[int(x) for x in abajo['nivel']]}")
+
+# ------------------------------------------------------------
+# 5) Con el forward medido (q por vencimiento): ¿cambian el signo y los walls?
+# ------------------------------------------------------------
+if con_q:
+    Aq = calcular(c[c["con_trade"]], "ultimo_trade", usar_q=True)
+    Bq = calcular(c[c["con_trade"]], "mid", usar_q=True)
+    Cq = calcular(c, "mid", usar_q=True)
+    print("\n=== CON FORWARD MEDIDO (q por vencimiento) ===")
+    print(f"{'versión':16s} {'GEX q=0':>10s} {'GEX q':>10s}  {'IV nan q':>9s}")
+    for nombre, d0, dq in [("A ultimo trade", A, Aq), ("B mid, mismas", B, Bq), ("C mid, todas", C, Cq)]:
+        print(f"  {nombre:14s} ${d0['gex_contrib'].sum() / 1e9:+8.2f}B ${dq['gex_contrib'].sum() / 1e9:+8.2f}B"
+              f"  {dq['iv'].isna().mean():8.1%}")
+    print("\nWalls con q (zonas de 25 pts):")
+    for nombre, d in [("A", Aq), ("B", Bq), ("C", Cq)]:
+        arriba, abajo = gamma_walls(d.dropna(subset=["gex_contrib"]), S, n=5)
+        print(f"{nombre}  arriba: {[int(x) for x in arriba['nivel']]}   abajo: {[int(x) for x in abajo['nivel']]}")
