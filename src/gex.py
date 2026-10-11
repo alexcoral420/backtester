@@ -10,8 +10,23 @@ from src.datos import descargar_cadena
 from src.simbolos import parsear_simbolos
 
 
-def construir_cadena(fecha, precio_spx):
-    """Descarga la cadena, la procesa (IV, gamma) y devuelve la tabla completa."""
+METODOS = ("ultimo_trade", "mid_forward")
+
+
+def construir_cadena(fecha, precio_spx, metodo="ultimo_trade"):
+    """Descarga la cadena, la procesa (IV, gamma) y devuelve la tabla completa.
+
+    metodo:
+      "ultimo_trade" (default, el original): precio = último trade del día, solo opciones que
+                     operaron ese día, sin dividendos (q = 0).
+      "mid_forward"  (versión C validada el 24-sep): precio = punto medio bid/ask de cierre,
+                     TODAS las opciones con OI, y q por vencimiento medido con la paridad call-put.
+    """
+    if metodo not in METODOS:
+        raise ValueError(f"metodo debe ser uno de {METODOS}, no {metodo!r}")
+    if metodo == "mid_forward":
+        return _cadena_mid_forward(fecha, precio_spx)
+
     precios, oi = descargar_cadena(fecha)
     c = precios.merge(oi, on="symbol", how="inner")
     info = parsear_simbolos(c["symbol"])
@@ -24,6 +39,26 @@ def construir_cadena(fecha, precio_spx):
     S, r = precio_spx, TASA_LIBRE_RIESGO
     c["iv"] = c.apply(lambda f: calcular_iv(f["precio_opcion"], S, f["strike"], f["T"], r, f["tipo"]), axis=1)
     c["gamma"] = c.apply(lambda f: gamma_opcion(S, f["strike"], f["T"], r, f["iv"]), axis=1)
+    c["signo"] = np.where(c["tipo"] == "C", 1, -1)
+    c["gex_contrib"] = c["gamma"] * c["open_interest"] * c["signo"] * 100 * (S**2) * 0.01
+    return c
+
+
+def _cadena_mid_forward(fecha, precio_spx):
+    """Versión C con forward medido. Mismas columnas que la original, más 'q' y 'con_trade'."""
+    from src.forward import forward_por_vencimiento, q_por_opcion
+    from src.precio_justo import tabla_cierre
+
+    S, r = precio_spx, TASA_LIBRE_RIESGO
+    c = tabla_cierre(fecha)
+    c = c[c["T"] > 0].copy()
+    c["q"] = q_por_opcion(c, forward_por_vencimiento(c, S, r))
+    c = c.rename(columns={"venc": "vencimiento"}).reset_index()
+    c["precio_opcion"] = c["mid"]
+    c["iv"] = [calcular_iv(p, S, k, T, r, tp, q) for p, k, T, tp, q in
+               zip(c["precio_opcion"], c["strike"], c["T"], c["tipo"], c["q"])]
+    c["gamma"] = [gamma_opcion(S, k, T, r, v, q) for k, T, v, q in
+                  zip(c["strike"], c["T"], c["iv"], c["q"])]
     c["signo"] = np.where(c["tipo"] == "C", 1, -1)
     c["gex_contrib"] = c["gamma"] * c["open_interest"] * c["signo"] * 100 * (S**2) * 0.01
     return c
