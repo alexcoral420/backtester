@@ -95,6 +95,30 @@ def descargar_cadena(fecha, raices=("SPX",)):
     return precios, oi
 
 
+def asegurar_cadenas(fechas, raices=("SPX",)):
+    """Deja en caché la cadena de VARIAS fechas con UNA sola confirmación de costo (el total).
+    Las fechas que ya están en caché no cuestan nada. Después, descargar_cadena las lee sin preguntar."""
+    pendientes = [(f, r, s) for f in fechas for r in raices for s in ("ohlcv-1d", "statistics")
+                  if not os.path.exists(ruta_cadena(r, s, f))]
+    if not pendientes:
+        _log(f"[caché] las {len(fechas)} fechas ya están en caché")
+        return
+    cliente = _cliente()
+    costo = sum(cliente.metadata.get_cost(**_parametros_cadena(r, s, f)) for f, r, s in pendientes)
+    dias = sorted({f for f, _, _ in pendientes})
+    if not _confirmar(f"{len(dias)} días sin caché ({', '.join(dias)}): {len(pendientes)} descargas, "
+                      f"costo estimado TOTAL ${costo:.4f}. ¿Descargar todo? (s/n): "):
+        raise SystemExit("Descarga cancelada.")
+    os.makedirs(CARPETA_CACHE, exist_ok=True)
+    for f, r, s in pendientes:
+        try:
+            df = cliente.timeseries.get_range(**_parametros_cadena(r, s, f)).to_df().reset_index()
+        except Exception as e:
+            raise RuntimeError(f"Falló la descarga de {r} {s} del {f}: {e}")
+        df.to_parquet(ruta_cadena(r, s, f))
+        _log(f"[guardado] {ruta_cadena(r, s, f)} ({len(df)} filas)")
+
+
 def descargar_trades(simbolos, fecha_inicio, fecha_fin):
     """Descarga los trades con bid/ask (tcbbo) de opciones específicas.
     Para el trade sign. simbolos = lista de símbolos exactos.
