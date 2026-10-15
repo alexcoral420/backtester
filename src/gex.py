@@ -32,14 +32,21 @@ def signo_gamma_supuesto(tipos):
 METODOS = ("ultimo_trade", "mid_forward")
 
 
-def construir_cadena(fecha, precio_spx, metodo="ultimo_trade"):
+def construir_cadena(fecha, precio_spx, metodo="mid_forward"):
     """Descarga la cadena, la procesa (IV, gamma) y devuelve la tabla completa.
 
     metodo:
-      "ultimo_trade" (default, el original): precio = último trade del día, solo opciones que
-                     operaron ese día, sin dividendos (q = 0).
-      "mid_forward"  (versión C validada el 24-sep): precio = punto medio bid/ask de cierre,
-                     TODAS las opciones con OI, y q por vencimiento medido con la paridad call-put.
+      "mid_forward"  (DEFAULT): precio = punto medio bid/ask de cierre, TODAS las opciones con OI,
+                     y q por vencimiento medido con la paridad call-put.
+      "ultimo_trade" (el original, se conserva para comparar): último trade del día, solo opciones
+                     que operaron ese día, sin dividendos (q = 0).
+
+    POR QUÉ mid_forward es el default (oct-2026): por VALUACIÓN, no por predicción.
+      - el libro del dealer incluye el OI que no operó ese día (~25% del OI): hay que contarlo
+      - sin forward las calls ITM daban IV nan y se tiraban -> inventaban walls (caso 7000, 24-sep)
+      - el último trade estaba fuera del bid/ask de cierre en el 74% de los casos
+    La predicción del rango siguiente (validar_gex, 25 días en 3 regímenes) salió PAREJA entre
+    métodos: no es la razón del cambio, y una ventana donde el viejo prediga mejor no la invalida.
     """
     if metodo not in METODOS:
         raise ValueError(f"metodo debe ser uno de {METODOS}, no {metodo!r}")

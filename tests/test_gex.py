@@ -19,6 +19,12 @@ def test_gamma_walls_ignora_opciones_sin_gamma():
     assert abajo["nivel"].iloc[0] == 7600 and abajo["gex_contrib"].iloc[0] == -3e8
 
 
+def test_default_es_mid_forward():
+    """El default es una decisión documentada (valuación): cambiarlo debe ser explícito."""
+    import inspect
+    assert inspect.signature(construir_cadena).parameters["metodo"].default == "mid_forward"
+
+
 def test_hipotesis_nula_de_signos():
     """Fija el PUNTO DE PARTIDA de la fase B, no una verdad: público vende calls y compra puts
     => dealer gamma +1 en calls, -1 en puts. Si este test cambia, cambió el supuesto de todo el GEX."""
