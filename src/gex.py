@@ -7,7 +7,26 @@ import numpy as np
 from config import TASA_LIBRE_RIESGO
 from src.black_scholes import calcular_iv, gamma_opcion
 from src.datos import descargar_cadena
+from src.odte.dealer import posicion_dealer
 from src.simbolos import parsear_simbolos
+
+# ------------------------------------------------------------------------------------------------
+# HIPÓTESIS NULA del signo del dealer. NO es una regla ni una verdad: es un SUPUESTO POR DEFECTO.
+#   Qué dice: el público VENDE calls (overwriting) y COMPRA puts (coberturas)
+#             => el dealer está largo de calls (gamma +) y corto de puts (gamma -).
+#   Para qué existe: es el punto de partida contra el cual la fase B MIDE desviaciones.
+#   Lo que esperamos ver contradicho: los walls anómalos (box spreads del 8000, el bull put
+#   institucional del 2-oct, el 42% de veredictos que cambiaron en la reverificación de walls).
+#   Todo GEX calculado con esto descansa en un signo ASUMIDO, no medido.
+# ------------------------------------------------------------------------------------------------
+HIPOTESIS_NULA_PUBLICO = {"C": "vende", "P": "compra"}
+
+
+def signo_gamma_supuesto(tipos):
+    """Signo de la gamma del dealer por opción BAJO LA HIPÓTESIS NULA (+1 calls, -1 puts).
+    Se deriva de la tabla de signos (src/odte/dealer.py), no se escribe a mano."""
+    mapa = {t: posicion_dealer(HIPOTESIS_NULA_PUBLICO[t], t)["gamma"] for t in HIPOTESIS_NULA_PUBLICO}
+    return pd.Series(tipos).map(mapa).values
 
 
 METODOS = ("ultimo_trade", "mid_forward")
@@ -39,7 +58,7 @@ def construir_cadena(fecha, precio_spx, metodo="ultimo_trade"):
     S, r = precio_spx, TASA_LIBRE_RIESGO
     c["iv"] = c.apply(lambda f: calcular_iv(f["precio_opcion"], S, f["strike"], f["T"], r, f["tipo"]), axis=1)
     c["gamma"] = c.apply(lambda f: gamma_opcion(S, f["strike"], f["T"], r, f["iv"]), axis=1)
-    c["signo"] = np.where(c["tipo"] == "C", 1, -1)
+    c["signo"] = signo_gamma_supuesto(c["tipo"])           # ASUMIDO (hipótesis nula), no medido
     c["gex_contrib"] = c["gamma"] * c["open_interest"] * c["signo"] * 100 * (S**2) * 0.01
     return c
 
@@ -59,7 +78,7 @@ def _cadena_mid_forward(fecha, precio_spx):
                zip(c["precio_opcion"], c["strike"], c["T"], c["tipo"], c["q"])]
     c["gamma"] = [gamma_opcion(S, k, T, r, v, q) for k, T, v, q in
                   zip(c["strike"], c["T"], c["iv"], c["q"])]
-    c["signo"] = np.where(c["tipo"] == "C", 1, -1)
+    c["signo"] = signo_gamma_supuesto(c["tipo"])           # ASUMIDO (hipótesis nula), no medido
     c["gex_contrib"] = c["gamma"] * c["open_interest"] * c["signo"] * 100 * (S**2) * 0.01
     return c
 
