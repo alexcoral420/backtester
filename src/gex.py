@@ -109,3 +109,55 @@ def gamma_walls(cadena, precio_spx, n=5, banda=25):
     arriba = perfil[perfil["nivel"] > precio_spx].nlargest(n, "gex_contrib")
     abajo = perfil[perfil["nivel"] < precio_spx].nsmallest(n, "gex_contrib")
     return arriba, abajo
+
+
+MIN_ABS_NIVEL = 200      # contratos netos medidos por zona para opinar (mismo piso que signo_medido.MIN_ABS)
+
+
+def niveles_gamma(cadena, precio_spx, n=10, banda=25, medido=None, min_abs=MIN_ABS_NIVEL):
+    """Niveles de gamma SIN interpretar: ranking por magnitud, con signo y posición como columnas.
+
+    A diferencia de gamma_walls, no decide de antemano que 'abajo = soporte (gamma -)' y
+    'arriba = resistencia (gamma +)'. Un pin de gamma + debajo del precio (7800 el 12-oct) aparece.
+
+    Columnas por zona:
+      nivel, distancia (nivel - spot), posicion ('arriba' / 'abajo' / 'en precio' = la zona del spot)
+      gex_calls, gex_puts, gex_neto      ($ por 1% de movimiento, signo de la HIPÓTESIS NULA)
+      pct_abs                            % de la suma de |gex_neto| de todas las zonas
+      dominante                          'calls' o 'puts' (la pata de mayor |gex|)
+      signo_supuesto                     '+' / '-' de gex_neto: SUPUESTO, no medido
+      neto_publico, signo_medido         solo si se pasa 'medido' (ver abajo)
+
+    medido: Serie opcional strike -> contratos netos del PÚBLICO con regla estricta (compra - venta,
+      calls + puts). Sumar calls y puts del mismo strike es válido porque tienen la MISMA gamma (BS).
+      Que el público compre (calls o puts) deja al dealer CORTO de gamma => signo_medido = '-'.
+      |neto| < min_abs -> 'sin evidencia'. Zona sin flujo -> 'no medido'. Nunca se mezcla con gex_neto.
+    """
+    c = cadena.dropna(subset=["gex_contrib"]).copy()
+    c["zona"] = (c["strike"] / banda).round() * banda
+    p = c.pivot_table(index="zona", columns="tipo", values="gex_contrib", aggfunc="sum", fill_value=0.0)
+    p = p.reindex(columns=["C", "P"], fill_value=0.0).rename(columns={"C": "gex_calls", "P": "gex_puts"})
+    p["gex_neto"] = p["gex_calls"] + p["gex_puts"]
+    p = p.reset_index().rename(columns={"zona": "nivel"})
+
+    zona_spot = round(precio_spx / banda) * banda
+    p["distancia"] = p["nivel"] - precio_spx
+    p["posicion"] = np.where(p["nivel"] == zona_spot, "en precio",
+                             np.where(p["nivel"] > precio_spx, "arriba", "abajo"))
+    total = p["gex_neto"].abs().sum()
+    p["pct_abs"] = p["gex_neto"].abs() / total * 100 if total else np.nan
+    p["dominante"] = np.where(p["gex_calls"].abs() >= p["gex_puts"].abs(), "calls", "puts")
+    p["signo_supuesto"] = np.where(p["gex_neto"] >= 0, "+", "-")
+
+    cols = ["nivel", "distancia", "posicion", "gex_neto", "pct_abs", "signo_supuesto",
+            "dominante", "gex_calls", "gex_puts"]
+    if medido is not None:
+        m = pd.Series(medido, dtype="float64")
+        m = m.groupby((m.index.astype(float) / banda).round() * banda).sum()
+        p["neto_publico"] = p["nivel"].map(m)
+        p["signo_medido"] = [("no medido" if pd.isna(x) else "sin evidencia" if abs(x) < min_abs
+                              else "-" if x > 0 else "+") for x in p["neto_publico"]]
+        cols += ["neto_publico", "signo_medido"]
+
+    orden = p["gex_neto"].abs().sort_values(ascending=False).index[:n]
+    return p.loc[orden, cols].reset_index(drop=True)

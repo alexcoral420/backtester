@@ -19,6 +19,51 @@ def test_gamma_walls_ignora_opciones_sin_gamma():
     assert abajo["nivel"].iloc[0] == 7600 and abajo["gex_contrib"].iloc[0] == -3e8
 
 
+def _cadena_pin():
+    """Spot 7820. Pin de calls en 7800 (DEBAJO del precio, gamma +), puts en 7650, calls en 7900."""
+    return pd.DataFrame({
+        "strike": [7800.0, 7800.0, 7650.0, 7900.0, 7700.0],
+        "tipo": ["C", "P", "P", "C", "P"],
+        "gex_contrib": [9e8, -2e8, -4e8, 3e8, float("nan")],
+    })
+
+
+def test_niveles_muestra_pin_positivo_debajo_del_precio():
+    """Regresión del 12/13-oct: gamma_walls no podía mostrar un nivel + debajo del spot."""
+    from src.gex import niveles_gamma
+    _, abajo = gamma_walls(_cadena_pin(), 7820.0, n=1)
+    assert list(abajo["nivel"]) == [7650]           # gamma_walls rankea 'abajo' por lo MÁS NEGATIVO: el pin no sale
+    v = niveles_gamma(_cadena_pin(), 7820.0)
+    top = v.iloc[0]
+    assert top["nivel"] == 7800 and top["signo_supuesto"] == "+" and top["posicion"] == "abajo"
+    assert top["gex_neto"] == 7e8 and top["dominante"] == "calls"
+
+
+def test_niveles_ordena_por_magnitud_sin_importar_el_lado():
+    from src.gex import niveles_gamma
+    v = niveles_gamma(_cadena_pin(), 7820.0)
+    assert list(v["nivel"]) == [7800, 7650, 7900]                # 7700 (nan) no aparece
+    assert v["pct_abs"].sum() == pytest.approx(100)
+    assert list(v["posicion"]) == ["abajo", "abajo", "arriba"]
+
+
+def test_niveles_marca_la_zona_del_spot():
+    from src.gex import niveles_gamma
+    v = niveles_gamma(_cadena_pin(), 7805.0)        # 7805 cae en la zona 7800
+    assert v.set_index("nivel").loc[7800, "posicion"] == "en precio"
+
+
+def test_niveles_signo_medido_separado_del_supuesto():
+    """El público COMPRÓ en 7650 -> dealer corto (-). En 7900 vendió poco -> sin evidencia."""
+    from src.gex import niveles_gamma
+    medido = pd.Series({7650.0: 1500, 7655.0: 300, 7900.0: -150})
+    v = niveles_gamma(_cadena_pin(), 7820.0, medido=medido).set_index("nivel")
+    assert v.loc[7650, "neto_publico"] == 1800 and v.loc[7650, "signo_medido"] == "-"
+    assert v.loc[7900, "signo_medido"] == "sin evidencia"
+    assert v.loc[7800, "signo_medido"] == "no medido"
+    assert v.loc[7800, "signo_supuesto"] == "+"                 # el supuesto no se toca
+
+
 def test_default_es_mid_forward():
     """El default es una decisión documentada (valuación): cambiarlo debe ser explícito."""
     import inspect
