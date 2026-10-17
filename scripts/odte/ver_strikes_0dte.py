@@ -122,3 +122,48 @@ for estado in ["aguantó", "cerró arriba", "cerró abajo"]:
     g = r[r["comportamiento"].str.contains(estado)]
     if len(g):
         print(f"  strikes que '{estado}': dealer {g['dealer_medido'].value_counts().to_dict()}")
+
+# ---------------- flujo ANTES del primer cruce (orden temporal) ----------------
+# El flujo del día completo mezcla lo que pasó antes y después de que el precio llegara al strike.
+# Para preguntar "¿qué posición tenía el dealer CUANDO llegó el precio?" solo vale el flujo previo.
+# Primer cruce = la primera barra de 1 min cuyo lado (arriba/abajo del strike) difiere del lado de la
+# primera barra del día. Cuentan como "antes" los trades con timestamp < inicio de esa barra
+# (conservador: el minuto del cruce queda fuera).
+# Strike NUNCA cruzado -> el corte es la MÁXIMA APROXIMACIÓN: el minuto del mínimo del día si el strike
+# está debajo del precio, o del máximo si está encima. Así no se cuela el flujo posterior al giro
+# (caso 7690 del 14-oct: +5 antes del mínimo de las 14:01, -1.594 en el día completo).
+def corte_strike(k):
+    """(timestamp de corte, etiqueta)"""
+    lado = dia > k
+    cambio = lado[lado != lado.iloc[0]]
+    if len(cambio):
+        return cambio.index[0], cambio.index[0].strftime("%H:%M")
+    t0 = dia.idxmin() if lado.iloc[0] else dia.idxmax()
+    return t0, f"nunca (aprox {t0:%H:%M})"
+
+
+tr["neto"] = tr["signo"].astype("int64") * tr["size"]
+cruces, antes, min_antes = [], [], []
+for k in r.index:
+    t0, etiqueta = corte_strike(k)
+    g = tr[tr["strike_price"] == k]
+    pre = g[g[ts] < t0]
+    cruces.append(etiqueta)
+    antes.append(int(pre["neto"].sum()))
+    min_antes.append(int((t0 - dia.index[0]).total_seconds() // 60))
+r["primer_cruce"], r["min_antes"], r["neto_antes_cruce"] = cruces, min_antes, antes
+r["dealer_antes_cruce"] = ["sin evidencia" if abs(x) < MIN_ABS else ("-" if x > 0 else "+")
+                           for x in r["neto_antes_cruce"]]
+r["neto_despues_cruce"] = r["neto_total"] - r["neto_antes_cruce"]
+
+print("\n=== Signo del dealer con el flujo ANTES del primer cruce (lo que había cuando llegó el precio) ===")
+print("(min_antes = minutos de sesión antes del corte; 'nunca (aprox HH:MM)' = no se cruzó: corte en la máxima "
+      "aproximación del precio)\n")
+print(r[["comportamiento", "primer_cruce", "min_antes", "neto_antes_cruce", "dealer_antes_cruce",
+         "neto_despues_cruce", "neto_total", "dealer_medido"]].to_string())
+print("\nResumen (antes del cruce vs día completo):")
+for estado in ["aguantó", "cerró arriba", "cerró abajo"]:
+    g = r[r["comportamiento"].str.contains(estado)]
+    if len(g):
+        print(f"  '{estado}' ({len(g)} strikes): antes del cruce {g['dealer_antes_cruce'].value_counts().to_dict()}"
+              f" | día completo {g['dealer_medido'].value_counts().to_dict()}")
