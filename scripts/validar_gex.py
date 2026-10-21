@@ -42,7 +42,9 @@ for i, dia in enumerate(dias):
     fecha, sig = dia.strftime("%Y-%m-%d"), hist.index[i + 1]
     S = float(hist.loc[dia, "Close"])
     alto, bajo, cierre_sig = (float(hist.loc[sig, c]) for c in ("High", "Low", "Close"))
-    f = dict(fecha=fecha, sig=sig.strftime("%m-%d"), S=S, rango=alto - bajo, rango_pct=(alto - bajo) / S * 100)
+    h_hoy, l_hoy = float(hist.loc[dia, "High"]), float(hist.loc[dia, "Low"])
+    f = dict(fecha=fecha, sig=sig.strftime("%m-%d"), S=S, rango=alto - bajo, rango_pct=(alto - bajo) / S * 100,
+             rango_hoy_pct=(h_hoy - l_hoy) / S * 100)        # el predictor ingenuo: lo que ya se sabía al cierre
     for nombre, metodo in METODOS.items():
         c = construir_cadena(fecha, S, metodo=metodo).dropna(subset=["gex_contrib"])
         arriba, abajo = gamma_walls(c, S, n=5)
@@ -56,6 +58,15 @@ for i, dia in enumerate(dias):
 t = pd.DataFrame(filas).set_index("fecha")
 for nombre in METODOS:
     t[f"cambio_{nombre}"] = t[f"gex_{nombre}"].diff()
+
+# Acumulador: cada corrida suma (o reemplaza) sus días en un solo CSV para analizar todas las ventanas juntas
+RUTA_ACUM = "data/validacion/gex_dias.csv"
+os.makedirs(os.path.dirname(RUTA_ACUM), exist_ok=True)
+acum = pd.read_csv(RUTA_ACUM, index_col="fecha") if os.path.exists(RUTA_ACUM) else pd.DataFrame()
+acum = pd.concat([acum[~acum.index.isin(t.index)], t]).sort_index()
+acum.to_csv(RUTA_ACUM, index_label="fecha")
+print(f"[acumulado] {len(t)} días guardados en {RUTA_ACUM} (total {len(acum)}). "
+      f"Análisis conjunto: python scripts/analizar_validacion.py")
 
 pd.set_option("display.width", 250)
 print(f"\n=== GEX al cierre (víspera) vs el día SIGUIENTE | {inicio} a {fin} ===")
