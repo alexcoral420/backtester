@@ -48,6 +48,12 @@ Do not bypass this, and do not run a script on uncached dates without the user k
 
   The default changed for **valuation** reasons: the unused OI is ~25% of the book, missing IVs created phantom walls (the 7000 wall on 24-sep), and the last trade was stale. It did **not** change for predictive reasons, since next-day range prediction came out even between the two methods. The docstring records this, so keep it accurate. Changes to the default method must be deliberate. The project compares methods side by side instead of silently replacing one.
 
+  Two more parameters, both off by default (default output is bit-identical to before they existed):
+  - `raices=("SPX",)` (default, monthly AM only) or `("SPX", "SPXW")`, which adds the daily/weekly PM short-dated gamma. The forward is measured **per root** (`forward.q_por_raiz`). `forward_por_vencimiento` raises if given more than one root, because SPX AM and SPXW PM share the third-Friday expiry and strikes.
+  - `plazo="dias"` (default, calendar days/365) or `"horas"`, which is NY close of `fecha` → 9:30 (SPX) / 16:00 (SPXW) of expiry, DST-aware. `simbolos.plazo_anios` is the **single** place T is computed. Use `"horas"` with SPXW.
+
+  The chain carries `raiz` and `dte` columns. `gex_por_plazo(cadena)` breaks the total down by root × DTE bucket (`1-3d`, `4-7d`, `8-35d`, `>35d`). This SPXW work lives on branch `spxw-raices`. Tag `antes-spxw` marks main before it.
+
   `gex_contrib = gamma · OI · signo · 100 · S² · 0.01`. Here `signo` comes from `signo_gamma_supuesto`, which derives it from `HIPOTESIS_NULA_PUBLICO` (the public sells calls and buys puts) through the `odte.dealer` sign table. It is an **assumed** sign, not a measured one, so don't hard-code `+1/−1`. Two views of the profile:
   - `gamma_walls` buckets the strikes into `banda`-point zones and returns the top `+` zones above and the top `−` zones below the spot. That split bakes in the convention that "above = resistance, below = support".
   - `niveles_gamma` ranks zones by `|gex_neto|` with no such convention. It reports position, calls/puts, `pct_abs` and `signo_supuesto` as columns. With an optional `medido` series (net public contracts per strike under the strict rule) it adds `signo_medido`, where `"sin evidencia"` means below `MIN_ABS_NIVEL`=200 and `"no medido"` means the zone had no flow.
@@ -65,6 +71,7 @@ Do not bypass this, and do not run a script on uncached dates without the user k
 **Scripts (`scripts/`, `scripts/odte/`)** are one-off analyses/visualisations. Each does `sys.path.insert(0, <repo root>)` and then imports from `src`. Their module docstring documents the usage (`Uso: python scripts/... <fecha> [q]`). Charts are saved to `data/*.png` (gitignored). Some results are tracked in git as CSVs:
 - `data/validacion/gex_dias.csv` is an **accumulator**. Each `validar_gex` run merges its days into it. `analizar_validacion.py` analyses all accumulated windows at $0.
 - `data/b2/flujo_series.csv` is the output of `b2_flujo`.
+- `validar_gex ... --spxw` (SPX+SPXW, `plazo="horas"`) writes to a **separate** accumulator, `data/validacion/gex_dias_spxw.csv`, analysed with `analizar_validacion.py <ruta>`. Never mix the two CSVs. `comparar_raices_gex.py` compares configs A (SPX/dias), B (SPX/horas) and C (SPX+SPXW/horas) per date. SPXW costs ~$0.46–0.49 per uncached day (SPX ~$0.20).
 
 **Validation rules (`validar_gex` / `analizar_validacion`, not negotiable):**
 - Always compare the day-before-close GEX with what happens next, never with the same day.
