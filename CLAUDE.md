@@ -64,6 +64,13 @@ Do not bypass this, and do not run a script on uncached dates without the user k
 - `signo_medido.py` (B3): `veredicto(neto_medido, delta_oi, accion_supuesta)` returns `confirma` / `CONTRADICE` / `demasiado chico` / `no atribuible` / `sin ΔOI`. It only gives an opinion when both minimums hold: `MIN_ABS`=200 contracts and `MIN_REL`=20% of the ΔOI. `pct_delta_indet` and `pct_oi_supuesto` measure how much of a wall's sign is assumption.
 - Phase B result: 98–99.9% of the walls' sign is **assumed**. The assumed sign and the measured flow are always shown side by side and are **never merged** into one GEX number. The strict classification has three states (buy at ask / sell at bid / indeterminate), and the indeterminate part is never redistributed.
 
+**Wall evolution (`src/walls.py`, `scripts/walls_tiempo.py`)**: tracks how loaded each wall is and why its GEX changes. Between two chain snapshots, ΔGEX splits **exactly** into three parts, tested in `tests/test_walls.py`:
+- **posicionamiento**: ΔOI × today's k
+- **mercado**: yesterday's OI × Δk, which covers price, time and IV
+- **vencidas**: expired options leaving the book
+
+Here k = gex_contrib/OI. The ΔOI excludes expirations, because an expiry is not a closed position. The script processes SPX+SPXW with `plazo="horas"` and caches each processed chain in `data/procesado/`. That folder is gitignored and saves ~2 min per day of compute. Use `--sin` for days missing at Databento (2026-10-20 has no data); the flow label then shows the extra sessions. Finding over 24-sep..21-oct 2026: the total GEX mostly tracks spot. The "mercado" part had the same sign as the SPX move on 17 of 18 days. Individual walls persist by **rotation**: weekly expiries are replaced by new OI at the same strikes.
+
 **0DTE package (`src/odte/`)**: one module per question (see `src/odte/__init__.py`): `catalogo` (the `definition` schema, 0DTE filter), `precio` (SPX per minute = ES 1-min minus the close basis, since OPRA has no index), `trades` (`tcbbo`, cache keyed by an md5 of the symbols plus the time window), `clasificacion` (midpoint rule vs a strict at-bid/at-ask rule, with a `complejo` flag for prints outside the spread), `flujo` (per-minute public flow; the dealer is the opposite sign), `dealer` (the dealer sign table). Constants are in `constantes.py`.
 
 **Timezones:** every timestamp carries `America/New_York` explicitly. Databento `expiration` is midnight UTC, which falls on the *previous* day in NY. This was the project's first bug and has a regression test in `tests/test_catalogo.py`.
