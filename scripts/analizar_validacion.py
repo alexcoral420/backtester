@@ -1,5 +1,6 @@
 """
 Uso:  python scripts/analizar_validacion.py
+      python scripts/analizar_validacion.py data/validacion/gex_dias_spxw.csv   (el acumulador de --spxw)
 
 Analiza TODAS las ventanas acumuladas por validar_gex (data/validacion/gex_dias.csv). $0, sin descargas.
 
@@ -18,7 +19,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-RUTA = "data/validacion/gex_dias.csv"
+RUTA = sys.argv[1] if len(sys.argv) > 1 else "data/validacion/gex_dias.csv"
 if not os.path.exists(RUTA):
     raise SystemExit(f"No existe {RUTA}: corre primero scripts/validar_gex.py en alguna ventana.")
 t = pd.read_csv(RUTA, parse_dates=["fecha"]).sort_values("fecha").reset_index(drop=True)
