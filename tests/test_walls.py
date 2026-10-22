@@ -105,3 +105,14 @@ def test_evolucion_agrega_dS_y_distancia():
     assert d["dS"].iloc[1] == 50
     fila = z[(z["fecha"] == pd.Timestamp("2026-10-16")) & (z["zona"] == 7800)].iloc[0]
     assert fila["dist_pct"] == pytest.approx(50 / 7750 * 100) and fila["oi_total"] == 130
+
+
+def test_rotacion_wall_sin_fila_el_primer_dia_queda_nan():
+    """Regresión del revisor: 7775 solo existe el 2º día; su oi_ini no debe tomarse de otra fecha."""
+    from src.walls import rotacion
+    hoy = pd.concat([HOY, _cadena([("M", "C", 7775.0, 40, 9.0)])], ignore_index=True)
+    _, z = evolucion({pd.Timestamp("2026-10-15"): AYER, pd.Timestamp("2026-10-16"): hoy})
+    r = rotacion(z, [7600, 7775])
+    assert pd.isna(r.loc[7775, "oi_ini"]) and pd.isna(r.loc[7775, "renovado_pct"])
+    assert (r.loc[7775, "oi_fin"], r.loc[7775, "doi_c"]) == (40, 40)
+    assert r.loc[7600, "oi_ini"] == 250

@@ -128,14 +128,17 @@ def rotacion(zonas, walls):
     """Por wall, en toda la ventana de 'zonas' (salida de evolucion, ya recortada): carga al inicio y al
     final (oi_ini/fin, pct_puts_ini/fin), aperturas netas sin vencimientos (doi_c, doi_p), lo que venció
     (oi_venc), renovado_pct = vencido / OI inicial, y la descomposición del GEX (pos, mer, ven).
-    Los cambios de la PRIMERA fecha de la ventana no se cuentan (son contra un día fuera de ella)."""
-    z = zonas[zonas["zona"].isin(walls)].sort_values("fecha")
-    dentro = z[z["fecha"] > z["fecha"].min()]
-    r = dentro.groupby("zona")[CAMBIOS].sum()
-    g = z.groupby("zona")
-    r.insert(0, "oi_ini", g["oi_total"].first())
-    r.insert(1, "oi_fin", g["oi_total"].last())
-    r.insert(2, "pct_puts_ini", g["pct_puts"].first())
-    r.insert(3, "pct_puts_fin", g["pct_puts"].last())
+    Los cambios de la PRIMERA fecha de la ventana no se cuentan (son contra un día fuera de ella).
+    _ini y _fin son SIEMPRE la primera y la última fecha de la ventana: un wall sin fila ese día queda nan
+    (no se toma otra fecha en silencio)."""
+    ini, fin = zonas["fecha"].min(), zonas["fecha"].max()
+    z = zonas[zonas["zona"].isin(walls)]
+    r = z[z["fecha"] > ini].groupby("zona")[CAMBIOS].sum().reindex(walls)
+    r.index.name = "zona"
+    a, b = z[z["fecha"] == ini].set_index("zona"), z[z["fecha"] == fin].set_index("zona")
+    r.insert(0, "oi_ini", a["oi_total"].reindex(r.index))
+    r.insert(1, "oi_fin", b["oi_total"].reindex(r.index))
+    r.insert(2, "pct_puts_ini", a["pct_puts"].reindex(r.index))
+    r.insert(3, "pct_puts_fin", b["pct_puts"].reindex(r.index))
     r["renovado_pct"] = (r["oi_venc"] / r["oi_ini"] * 100).where(r["oi_ini"] > 0)
     return r

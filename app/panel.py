@@ -7,7 +7,8 @@ scripts/walls_tiempo.py) y todos los números salen de src/walls.py. Nunca desca
 
 Convención medido / supuesto: la decide SIEMPRE el contrato de walls.py (es_supuesta), nunca a mano.
   MEDIDO   (OI, ΔOI, % puts, SPX):  escalas de un solo tono, barras sólidas, líneas continuas
-  SUPUESTO (gex, pos, mer, ven):    escala divergente azul/rojo con gris en 0, barras RAYADAS, líneas
+  SUPUESTO (gex, pos, mer, ven):    escala divergente azul/rojo con gris en 0 (pos/mer/ven: colores propios
+                                    distintos de calls/puts), barras RAYADAS, líneas
                                     discontinuas, "SUPUESTO" en título, eje/barra de color, hover y tablas
 Regla de tiempo: el ΔOI (y 'posicionamiento') de la fecha d es el flujo del día de mercado ANTERIOR.
 """
@@ -23,18 +24,28 @@ import streamlit as st
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.walls import CLAVES, SUPUESTAS, es_supuesta, evolucion, rotacion, zonas_por_tramo
+from src.walls import CLAVES, es_supuesta, evolucion, rotacion, zonas_por_tramo
 
 CARPETA = "data/procesado"
 PATRON = os.path.join(CARPETA, "cadena_SPX+SPXW_horas_*.parquet")
 
-# Paleta validada (dataviz, references/palette.md). Calls/puts = slots categóricos 1 y 2.
-CALLS, PUTS, TERCERO = "#2a78d6", "#eb6834", "#1baf7a"
+# Paleta validada (dataviz, references/palette.md; validate_palette.js pasa en cada modo con su superficie).
+#   calls/puts = slots categóricos 1-2; componentes del ΔGEX (todos supuestos) = slots 3-4-5, distintos de
+#   calls/puts para no confundirse con series medidas. Modo oscuro = sus propios pasos, no un "invertir".
+_OSCURO = getattr(getattr(st.context, "theme", None), "type", None) == "dark"
+if _OSCURO:
+    CALLS, PUTS = "#3987e5", "#d95926"
+    COLOR_COMPONENTE = {"pos": "#199e70", "mer": "#c98500", "ven": "#d55181"}
+    TINTA, TINTA_SUAVE, SUPERFICIE, MEDIO = "#f0efec", "#c3c2b7", "#1a1a19", "#383835"
+else:
+    CALLS, PUTS = "#2a78d6", "#eb6834"
+    COLOR_COMPONENTE = {"pos": "#1baf7a", "mer": "#eda100", "ven": "#e87ba4"}
+    TINTA, TINTA_SUAVE, SUPERFICIE, MEDIO = "#0b0b0b", "#52514e", "#fcfcfb", "#e1e0d9"
 SEQ_AZUL = ["#cde2fb", "#86b6ef", "#3987e5", "#1c5cab", "#0d366b"]
 SEQ_NARANJA = ["#fde4d6", "#f6b08f", "#eb6834", "#b84a1f", "#7a2e10"]
-DIVERGENTE = [[0.0, "#b3261e"], [0.25, "#e66767"], [0.5, "#e1e0d9"], [0.75, "#5598e7"], [1.0, "#104281"]]
+DIVERGENTE = [[0.0, "#b3261e"], [0.25, "#e66767"], [0.5, MEDIO], [0.75, "#5598e7"], [1.0, "#104281"]]
 POSITIVO, NEGATIVO = "#3987e5", "#e66767"          # polos de DIVERGENTE, para barras supuestas por signo
-NEUTRO, TINTA, TINTA_SUAVE = "#898781", "#0b0b0b", "#52514e"
+NEUTRO = "#898781"
 
 ETIQUETAS = {
     "oi_c": "OI calls", "oi_p": "OI puts", "oi_total": "OI total", "pct_puts": "% del OI en puts",
@@ -57,6 +68,23 @@ def titulo(col, texto=None):
 def etiqueta_eje(col, unidad_medida=""):
     """Para ejes, barras de color y hover: la palabra SUPUESTO viaja con el número."""
     return f"{ETIQUETAS.get(col, col)} $B (SUPUESTO)" if supuesta(col) else ETIQUETAS.get(col, col) + unidad_medida
+
+
+def eje_comun(cols, unidad_medida=""):
+    """Título de un eje que comparte varias columnas: exige que sean todas de la MISMA clase (regla: un eje
+    nunca mezcla medido y supuesto)."""
+    clases = {supuesta(c) for c in cols}
+    if len(clases) != 1:
+        raise ValueError(f"Un eje no puede mezclar medido y supuesto: {cols}")
+    return "$B (SUPUESTO)" if clases.pop() else unidad_medida
+
+
+def a_miles_de_millones(df):
+    """Toda columna supuesta presente está en $: se pasa a $B (las medidas no se tocan)."""
+    for c in df.columns:
+        if c not in CLAVES and supuesta(c):
+            df[c] = df[c] / 1e9
+    return df
 
 
 def patron(col):
@@ -90,8 +118,7 @@ def cargar():
     if len(cadenas) < 2:
         return None, None, None
     D, Z = evolucion(cadenas)
-    for col in SUPUESTAS:                            # todas las supuestas están en $: se muestran en $B
-        D[col], Z[col] = D[col] / 1e9, Z[col] / 1e9
+    D, Z = a_miles_de_millones(D), a_miles_de_millones(Z)
     # Día de flujo que explica el ΔOI de cada fecha: el anterior de la serie. Si hay días hábiles en el medio
     # (hueco de datos o feriado) se avisa. Aproximado: no conoce feriados (el panel no usa internet).
     fechas, flujo = list(D.index), {}
@@ -106,9 +133,7 @@ def cargar():
 @st.cache_data
 def perfil(fecha):
     cadenas, _, _ = cargar()
-    t = zonas_por_tramo(cadenas[fecha])
-    t["gex"] = t["gex"] / 1e9
-    return t
+    return a_miles_de_millones(zonas_por_tramo(cadenas[fecha]))
 
 
 # ---------------------------------------------------------------- página
@@ -160,7 +185,7 @@ with tab_mapa:
                        + "<br>OI calls %{customdata[0]:,.0f} · OI puts %{customdata[1]:,.0f}"
                        + "<br>GEX %{customdata[2]:+.2f} $B (SUPUESTO)<extra></extra>")))
     fig.add_trace(go.Scatter(x=Dv.index, y=Dv["S"], mode="lines+markers", name="SPX cierre (medido)",
-                             line=linea("S", TINTA), marker=dict(size=8, color="#fcfcfb", line=dict(color=TINTA, width=2)),
+                             line=linea("S", TINTA), marker=dict(size=8, color=SUPERFICIE, line=dict(color=TINTA, width=2)),
                              hovertemplate="%{x|%d-%b} · SPX %{y:,.2f}<extra></extra>"))
     fig.update_layout(title=titulo(metrica, f"{ETIQUETAS[metrica]} por zona y día, con el SPX encima"),
                       height=650, xaxis=eje_fecha, yaxis_title="zona (25 pts)", legend=dict(orientation="h"))
@@ -229,14 +254,15 @@ with tab_wall:
     st.plotly_chart(fa, width="stretch")
 
     fb = go.Figure()
-    for col, color, nombre, signo in [("doi_c", CALLS, "ΔOI calls (abiertas − cerradas)", 1),
-                                      ("doi_p", PUTS, "ΔOI puts (abiertas − cerradas)", 1),
-                                      ("oi_venc", NEUTRO, "vencido (sale del libro)", -1)]:
+    for col, color, nombre, signo, cuando in [
+            ("doi_c", CALLS, "ΔOI calls (abiertas − cerradas)", 1, "flujo del %{customdata[1]}"),
+            ("doi_p", PUTS, "ΔOI puts (abiertas − cerradas)", 1, "flujo del %{customdata[1]}"),
+            ("oi_venc", NEUTRO, "vencido (sale del libro)", -1, "venció desde el archivo anterior (no es flujo)")]:
         fb.add_trace(go.Bar(x=w.index, y=signo * w[col], name=nombre,
                             marker=dict(color=color_barras(col, w[col], color), pattern=patron(col)),
                             customdata=np.column_stack([w[col], flujo_w]),
-                            hovertemplate="archivo %{x|%d-%b} · flujo del %{customdata[1]}<br>" + nombre
-                                          + " %{customdata[0]:+,.0f}<extra></extra>"))
+                            hovertemplate="archivo %{x|%d-%b} · " + cuando + "<br>" + nombre
+                                          + " %{customdata[0]:,.0f}<extra></extra>"))
     fb.update_layout(title=titulo("doi_c", f"Rotación del wall {zona}: lo que se abrió vs lo que venció"),
                      barmode="group", bargap=0.2, bargroupgap=0.05, height=320, xaxis=eje_fecha,
                      yaxis_title="contratos", legend=dict(orientation="h"), hovermode="x unified")
@@ -258,12 +284,12 @@ with tab_wall:
 with tab_desc:
     dd = Dv.dropna(subset=["pos"])
     fd = go.Figure()
-    for col, color in [("pos", CALLS), ("mer", PUTS), ("ven", TERCERO)]:
-        fd.add_trace(go.Bar(x=dd.index, y=dd[col], name=ETIQUETAS[col],
+    for col, color in COLOR_COMPONENTE.items():
+        fd.add_trace(go.Bar(x=dd.index, y=dd[col], name=ETIQUETAS[col] + (" (supuesto)" if supuesta(col) else ""),
                             marker=dict(color=color, pattern=patron(col)),
                             hovertemplate="%{x|%d-%b} · " + etiqueta_eje(col) + " %{y:+.2f}<extra></extra>"))
     fd.update_layout(title=titulo("pos", "Cambio diario del GEX total, por causa ($B)"), barmode="relative",
-                     bargap=0.2, height=420, xaxis=eje_fecha, yaxis_title="$B (SUPUESTO)",
+                     bargap=0.2, height=420, xaxis=eje_fecha, yaxis_title=eje_comun(list(COLOR_COMPONENTE)),
                      legend=dict(orientation="h"), hovermode="x unified")
     st.plotly_chart(fd, width="stretch")
     st.caption("Fechas = archivo d. 'posicionamiento' = ΔOI del flujo del día ANTERIOR valuado hoy; "
@@ -284,7 +310,11 @@ with tab_desc:
 with tab_rot:
     r = rotacion(Zv, candidatos)
     st.subheader("Rotación por wall en la ventana")
-    st.caption(f"Flujos contados: del {ini:%d-%b} al día de mercado anterior a {fin:%d-%b} (el ΔOI del archivo "
-               f"{ini:%d-%b} se excluye: es el flujo de un día fuera de la ventana). "
-               "renovado_pct = OI vencido / OI inicial. Columnas [SUPUESTO $B] usan el signo de la hipótesis nula.")
+    st.caption("Filas: los mismos walls de la ficha, elegidos por ranking de |GEX| SUPUESTO; las columnas medidas "
+               "valen por sí solas, pero QUÉ zonas aparecen depende del supuesto.")
+    st.caption(f"oi_ini / pct_puts_ini = archivo {ini:%d-%b} (OI al cierre del día de mercado anterior); "
+               f"oi_fin / pct_puts_fin = archivo {fin:%d-%b}. Un wall sin datos ese día queda vacío. "
+               f"Flujos contados (doi): del {ini:%d-%b} al día de mercado anterior a {fin:%d-%b} (el ΔOI del archivo "
+               f"{ini:%d-%b} se excluye: es flujo de un día fuera de la ventana). "
+               "renovado_pct = OI vencido / oi_ini. Columnas [SUPUESTO $B] usan el signo de la hipótesis nula.")
     tabla(r.rename(index=int))
