@@ -13,6 +13,9 @@ Reglas (para no contaminar el forward con el mismo ruido que queremos arreglar):
     si es grande, el bid/ask de cierre no es una foto coherente y hay que saberlo.
   - Un forward por vencimiento. Los vencimientos sin suficientes strikes heredan el q del
     vencimiento medido más cercano en plazo, y quedan marcados origen = "heredado".
+  - Un forward por RAÍZ: el tercer viernes vencen SPX (AM, 9:30) y SPXW (PM, 16:00) el mismo día,
+    con los mismos strikes y forwards distintos. forward_por_vencimiento acepta UNA raíz (si recibe
+    varias, grita); q_por_raiz mide cada raíz por separado.
 """
 import numpy as np
 import pandas as pd
@@ -26,6 +29,9 @@ def forward_por_vencimiento(tabla, S, r, n_strikes=5):
     Devuelve un DataFrame indexado por venc con:
       T, n_strikes, forward, dispersion (pts), q, origen ("medido" / "heredado")
     """
+    if "raiz" in tabla.columns and tabla["raiz"].nunique() > 1:
+        raise ValueError(f"forward_por_vencimiento recibe UNA raíz y llegaron {sorted(tabla['raiz'].unique())}: "
+                         "el mismo vencimiento AM y PM se mezclaría. Usa q_por_raiz.")
     filas = []
     for venc, g in tabla[tabla["T"] > 0].groupby("venc"):
         T = g["T"].iloc[0]
@@ -64,3 +70,12 @@ def forward_por_vencimiento(tabla, S, r, n_strikes=5):
 def q_por_opcion(tabla, fw):
     """Serie alineada con tabla: el q de cada opción según su vencimiento."""
     return tabla["venc"].map(fw["q"])
+
+
+def q_por_raiz(tabla, S, r):
+    """Como q_por_opcion(tabla, forward_por_vencimiento(...)), pero midiendo el forward de cada raíz
+    por separado (y la herencia de q queda dentro de la raíz). Sin columna 'raiz' = una sola raíz."""
+    if "raiz" not in tabla.columns:
+        return q_por_opcion(tabla, forward_por_vencimiento(tabla, S, r))
+    partes = [q_por_opcion(g, forward_por_vencimiento(g, S, r)) for _, g in tabla.groupby("raiz")]
+    return pd.concat(partes).reindex(tabla.index)

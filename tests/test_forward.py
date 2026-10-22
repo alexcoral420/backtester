@@ -68,3 +68,30 @@ def test_plazo_largo_se_centra_en_el_forward():
     fw = forward_por_vencimiento(t, S, R)
     assert fw["q"].iloc[0] == pytest.approx(q, abs=1e-9)
     assert fw["dispersion"].iloc[0] == pytest.approx(0, abs=1e-6)
+
+
+def _dos_raices():
+    """Tercer viernes: SPX (AM) y SPXW (PM) con el MISMO venc y strikes, y q distintos a propósito."""
+    am = _cadena({"2026-10-16": 22 / 365}, {"2026-10-16": 0.013}).assign(raiz="SPX")
+    pm = _cadena({"2026-10-16": 22.27 / 365}, {"2026-10-16": 0.009}).assign(raiz="SPXW")
+    return pd.concat([am, pm], ignore_index=True)
+
+
+def test_mezclar_raices_grita():
+    with pytest.raises(ValueError, match="UNA raíz"):
+        forward_por_vencimiento(_dos_raices(), S, R)
+
+
+def test_q_por_raiz_mide_cada_raiz_por_separado():
+    from src.forward import q_por_raiz
+    t = _dos_raices()
+    q = q_por_raiz(t, S, R)
+    assert q.index.equals(t.index)
+    assert q[t["raiz"] == "SPX"].to_numpy() == pytest.approx(0.013, abs=1e-9)
+    assert q[t["raiz"] == "SPXW"].to_numpy() == pytest.approx(0.009, abs=1e-9)
+
+
+def test_q_por_raiz_sin_columna_raiz_es_lo_de_siempre():
+    from src.forward import q_por_raiz
+    t = _cadena({"2026-10-16": 22 / 365}, {"2026-10-16": 0.013})
+    assert q_por_raiz(t, S, R).equals(q_por_opcion(t, forward_por_vencimiento(t, S, R)))
