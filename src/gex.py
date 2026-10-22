@@ -8,7 +8,7 @@ from config import TASA_LIBRE_RIESGO
 from src.black_scholes import calcular_iv, gamma_opcion
 from src.datos import descargar_cadena
 from src.odte.dealer import posicion_dealer
-from src.simbolos import parsear_simbolos
+from src.simbolos import PLAZOS, parsear_simbolos, plazo_anios
 
 # ------------------------------------------------------------------------------------------------
 # HIPÓTESIS NULA del signo del dealer. NO es una regla ni una verdad: es un SUPUESTO POR DEFECTO.
@@ -32,8 +32,15 @@ def signo_gamma_supuesto(tipos):
 METODOS = ("ultimo_trade", "mid_forward")
 
 
-def construir_cadena(fecha, precio_spx, metodo="mid_forward"):
+def construir_cadena(fecha, precio_spx, metodo="mid_forward", raices=("SPX",), plazo="dias"):
     """Descarga la cadena, la procesa (IV, gamma) y devuelve la tabla completa.
+
+    raices: ("SPX",) (DEFAULT, el de siempre) = solo mensuales AM.
+            ("SPX", "SPXW") = también diarias y semanales PM: la gamma de corto plazo, cerca del spot.
+            Con SPXW conviene plazo="horas" (en 1-3 días la hora del vencimiento pesa).
+    plazo:  "dias" (DEFAULT) o "horas": cómo se mide T (ver simbolos.plazo_anios).
+    El forward se mide por raíz (forward.q_por_raiz): AM y PM del mismo día no se mezclan.
+    Columnas extra para desglosar: raiz y dte (días calendario al vencimiento).
 
     metodo:
       "mid_forward"  (DEFAULT): precio = punto medio bid/ask de cierre, TODAS las opciones con OI,
@@ -50,17 +57,21 @@ def construir_cadena(fecha, precio_spx, metodo="mid_forward"):
     """
     if metodo not in METODOS:
         raise ValueError(f"metodo debe ser uno de {METODOS}, no {metodo!r}")
+    if plazo not in PLAZOS:
+        raise ValueError(f"plazo debe ser uno de {PLAZOS}, no {plazo!r}")
     if metodo == "mid_forward":
-        return _cadena_mid_forward(fecha, precio_spx)
+        return _cadena_mid_forward(fecha, precio_spx, tuple(raices), plazo)
 
-    precios, oi = descargar_cadena(fecha)
+    precios, oi = descargar_cadena(fecha, tuple(raices))
     c = precios.merge(oi, on="symbol", how="inner")
     info = parsear_simbolos(c["symbol"])
+    c["raiz"] = info["raiz"]
     c["vencimiento"] = info["venc"]
     c["tipo"] = info["tipo"]
     c["strike"] = info["strike"]
-    c["T"] = (c["vencimiento"] - pd.to_datetime(fecha)).dt.days / 365
+    c["T"] = plazo_anios(fecha, c["vencimiento"], c["raiz"], plazo)
     c = c[c["T"] > 0].copy()
+    c["dte"] = (c["vencimiento"] - pd.to_datetime(fecha)).dt.days
 
     S, r = precio_spx, TASA_LIBRE_RIESGO
     c["iv"] = c.apply(lambda f: calcular_iv(f["precio_opcion"], S, f["strike"], f["T"], r, f["tipo"]), axis=1)
@@ -70,16 +81,17 @@ def construir_cadena(fecha, precio_spx, metodo="mid_forward"):
     return c
 
 
-def _cadena_mid_forward(fecha, precio_spx):
+def _cadena_mid_forward(fecha, precio_spx, raices, plazo):
     """Versión C con forward medido. Mismas columnas que la original, más 'q' y 'con_trade'."""
-    from src.forward import forward_por_vencimiento, q_por_opcion
+    from src.forward import q_por_raiz
     from src.precio_justo import tabla_cierre
 
     S, r = precio_spx, TASA_LIBRE_RIESGO
-    c = tabla_cierre(fecha)
+    c = tabla_cierre(fecha, raices, plazo)
     c = c[c["T"] > 0].copy()
-    c["q"] = q_por_opcion(c, forward_por_vencimiento(c, S, r))
+    c["q"] = q_por_raiz(c, S, r)
     c = c.rename(columns={"venc": "vencimiento"}).reset_index()
+    c["dte"] = (c["vencimiento"] - pd.to_datetime(fecha)).dt.days
     c["precio_opcion"] = c["mid"]
     c["iv"] = [calcular_iv(p, S, k, T, r, tp, q) for p, k, T, tp, q in
                zip(c["precio_opcion"], c["strike"], c["T"], c["tipo"], c["q"])]
@@ -93,6 +105,18 @@ def _cadena_mid_forward(fecha, precio_spx):
 def gex_total(cadena):
     """Suma todas las contribuciones: el GEX total del día."""
     return cadena["gex_contrib"].sum()
+
+
+TRAMOS_PLAZO = ([0, 3, 7, 35, np.inf], ["1-3d", "4-7d", "8-35d", ">35d"])   # 1-3d = la próxima sesión, fin de semana incluido
+
+
+def gex_por_plazo(cadena):
+    """GEX por raíz (filas) y tramo de días al vencimiento (columnas): de DÓNDE sale el total.
+    Las filas suman gex_total; los tramos sin opciones quedan en 0."""
+    bordes, nombres = TRAMOS_PLAZO
+    tramo = pd.cut(cadena["dte"], bordes, labels=nombres)
+    return (cadena.groupby([cadena["raiz"], tramo], observed=False)["gex_contrib"].sum()
+            .unstack(fill_value=0.0))
 
 
 def gamma_walls(cadena, precio_spx, n=5, banda=25):

@@ -56,3 +56,38 @@ def test_coincide_con_el_parseo_viejo():
         assert nuevo["tipo"][i] == codigo[6]
         assert nuevo["strike"][i] == int(codigo[7:]) / 1000
         assert nuevo["venc_codigo"][i] == codigo[:6]                 # lógica de trade_sign.py
+
+# --- plazo_anios: T con la hora real de vencimiento de cada raíz ---
+
+def _plazo(fecha, vencs, raices, modo):
+    from src.simbolos import plazo_anios
+    return plazo_anios(fecha, pd.Series(pd.to_datetime(vencs)), pd.Series(raices), modo)
+
+
+def test_plazo_dias_es_el_calculo_de_siempre():
+    t = _plazo("2026-10-15", ["2026-10-16", "2026-11-20"], ["SPXW", "SPX"], "dias")
+    assert list(t) == [1 / 365, 36 / 365]
+
+
+def test_plazo_horas_am_y_pm():
+    """Jueves al cierre: SPXW del viernes = 24 h; SPX AM del viernes = 17,5 h (vence a las 9:30)."""
+    t = _plazo("2026-10-15", ["2026-10-16", "2026-10-16"], ["SPXW", "SPX"], "horas")
+    assert t.tolist() == pytest.approx([24 / 8760, 17.5 / 8760])
+
+
+def test_plazo_horas_cruza_el_cambio_de_horario():
+    """Viernes 30-oct a lunes 2-nov: el 1-nov termina el horario de verano -> 73 h, no 72."""
+    t = _plazo("2026-10-30", ["2026-11-02"], ["SPXW"], "horas")
+    assert t.iloc[0] == pytest.approx(73 / 8760)
+
+
+def test_plazo_vencido_el_mismo_dia_no_es_positivo():
+    t = _plazo("2026-10-16", ["2026-10-16", "2026-10-16"], ["SPXW", "SPX"], "horas")
+    assert t.iloc[0] == 0 and t.iloc[1] < 0
+
+
+def test_plazo_raiz_o_modo_desconocidos_gritan():
+    with pytest.raises(ValueError, match="Raíz"):
+        _plazo("2026-10-15", ["2026-10-16"], ["XSP"], "horas")
+    with pytest.raises(ValueError, match="modo"):
+        _plazo("2026-10-15", ["2026-10-16"], ["SPX"], "minutos")

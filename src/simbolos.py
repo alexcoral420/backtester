@@ -45,3 +45,33 @@ def parsear_simbolos(simbolos: pd.Series) -> pd.DataFrame:
 def parsear_simbolo(simbolo: str) -> dict:
     """Versión para un solo símbolo (cómoda para pruebas y scripts)."""
     return parsear_simbolos(pd.Series([simbolo])).iloc[0].to_dict()
+
+# Hora de vencimiento (NY) por raíz: SPX liquida con la APERTURA del día (AM), SPXW con el CIERRE (PM).
+HORA_VENCIMIENTO = {"SPX": (9, 30), "SPXW": (16, 0)}
+HORA_FOTO = (16, 0)                      # la cadena es la foto del cierre de 'fecha'
+PLAZOS = ("dias", "horas")
+
+
+def plazo_anios(fecha, venc, raiz, modo="dias"):
+    """T en años de cada opción, desde el cierre de 'fecha' hasta su vencimiento.
+
+    modo:
+      "dias"  (default, el de siempre): días calendario / 365. Ignora la hora: AM y PM valen igual.
+      "horas": de las 16:00 NY de 'fecha' a las 9:30 (SPX) o 16:00 (SPXW) NY de 'venc', en horas
+               reales (con el cambio de horario incluido) / (365 · 24). En vencimientos de 1-3 días
+               "dias" se equivoca hasta 6,5 h sobre 24 (la gamma ATM escala con 1/√T).
+    venc, raiz: Series alineadas, como salen de parsear_simbolos. Raíz sin hora conocida -> ValueError.
+    """
+    if modo not in PLAZOS:
+        raise ValueError(f"modo debe ser uno de {PLAZOS}, no {modo!r}")
+    venc, f = pd.to_datetime(venc), pd.Timestamp(fecha)
+    if modo == "dias":
+        return (venc - f).dt.days / 365
+
+    desconocidas = set(raiz.unique()) - set(HORA_VENCIMIENTO)
+    if desconocidas:
+        raise ValueError(f"Raíz sin hora de vencimiento conocida: {sorted(desconocidas)}")
+    minutos = raiz.map({r: h * 60 + m for r, (h, m) in HORA_VENCIMIENTO.items()})
+    fin = (venc + pd.to_timedelta(minutos, unit="min")).dt.tz_localize("America/New_York")
+    inicio = (f + pd.Timedelta(hours=HORA_FOTO[0], minutes=HORA_FOTO[1])).tz_localize("America/New_York")
+    return (fin - inicio).dt.total_seconds() / (365 * 24 * 3600)

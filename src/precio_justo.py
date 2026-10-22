@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from src.datos import descargar_cadena, ruta_cadena
-from src.simbolos import parsear_simbolos
+from src.simbolos import parsear_simbolos, plazo_anios
 
 STAT_BID, STAT_ASK = 8, 7
 
@@ -28,11 +28,11 @@ def _ultima(stats, stat_type, columna):
     return g.drop_duplicates("symbol", keep="last").set_index("symbol")[columna]
 
 
-def tabla_cierre(fecha, raices=("SPX",)):
+def tabla_cierre(fecha, raices=("SPX",), plazo="dias"):
     """
     Una fila por opción con OI. Columnas:
       open_interest, bid, ask, mid (nan si la cotización no sirve), ultimo_trade (nan si no operó),
-      con_trade, raiz, venc, tipo, strike, T (años, en días/365 como gex.py)
+      con_trade, raiz, venc, tipo, strike, T (años, simbolos.plazo_anios con 'plazo', como gex.py)
     Usa la caché de la cadena (la descarga con confirmación de costo si falta).
     """
     precios, oi = descargar_cadena(fecha, raices)
@@ -48,5 +48,5 @@ def tabla_cierre(fecha, raices=("SPX",)):
 
     info = parsear_simbolos(pd.Series(t.index, index=t.index))
     t = t.join(info[["raiz", "venc", "tipo", "strike"]])
-    t["T"] = (t["venc"] - pd.to_datetime(fecha)).dt.days / 365
+    t["T"] = plazo_anios(fecha, t["venc"], t["raiz"], plazo)
     return t

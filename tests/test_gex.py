@@ -84,3 +84,17 @@ def test_hipotesis_nula_sale_de_la_tabla_de_signos():
     from src.odte.dealer import posicion_dealer
     for t, accion in HIPOTESIS_NULA_PUBLICO.items():
         assert signo_gamma_supuesto([t])[0] == posicion_dealer(accion, t)["gamma"]
+
+def test_plazo_desconocido_falla_antes_de_descargar():
+    with pytest.raises(ValueError, match="plazo"):
+        construir_cadena("2026-09-24", 7700.0, plazo="semanas")
+
+
+def test_gex_por_plazo_desglosa_y_suma_el_total():
+    from src.gex import gex_por_plazo, gex_total
+    c = pd.DataFrame({"raiz": ["SPXW", "SPXW", "SPX", "SPX"], "dte": [1, 3, 22, 60],
+                      "gex_contrib": [4e8, -1e8, 2e8, float("nan")]})
+    p = gex_por_plazo(c)
+    assert p.loc["SPXW", "1-3d"] == 3e8 and p.loc["SPX", "8-35d"] == 2e8
+    assert p.loc["SPX", ">35d"] == 0 and p.loc["SPXW", "4-7d"] == 0
+    assert p.to_numpy().sum() == pytest.approx(gex_total(c))
