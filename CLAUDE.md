@@ -71,6 +71,15 @@ Do not bypass this, and do not run a script on uncached dates without the user k
 
 Here k = gex_contrib/OI. The ΔOI excludes expirations, because an expiry is not a closed position. The script processes SPX+SPXW with `plazo="horas"` and caches each processed chain in `data/procesado/`. That folder is gitignored and saves ~2 min per day of compute. Use `--sin` for days missing at Databento (2026-10-20 has no data); the flow label then shows the extra sessions. Finding over 24-sep..21-oct 2026: the total GEX mostly tracks spot. The "mercado" part had the same sign as the SPX move on 17 of 18 days. Individual walls persist by **rotation**: weekly expiries are replaced by new OI at the same strikes.
 
+**Measured vs assumed contract and the panel:**
+- `walls.py` declares `MEDIDAS`, `SUPUESTAS` and `CLAVES`. `es_supuesta(col)` raises on an unclassified column, and a test requires every output column to be classified.
+- `app/panel.py` is a Streamlit + Plotly panel, run with `streamlit run app/panel.py`. It only reads `data/procesado/`: it never imports `datos`/`config`, so it needs no API key and cannot spend credit.
+- All panel styling comes from the contract:
+  - Assumed values get a diverging scale, hatched bars, dashed lines and "SUPUESTO" in titles, hovers and table headers.
+  - Measured values get single-hue scales and solid marks.
+  - Light and dark palettes are validated separately with the dataviz validator.
+- Subagent `.claude/agents/revisor-supuesto-medido.md` is read-only (Read/Grep/Glob). Run it after changing the panel or any script that shows GEX.
+
 **0DTE package (`src/odte/`)**: one module per question (see `src/odte/__init__.py`): `catalogo` (the `definition` schema, 0DTE filter), `precio` (SPX per minute = ES 1-min minus the close basis, since OPRA has no index), `trades` (`tcbbo`, cache keyed by an md5 of the symbols plus the time window), `clasificacion` (midpoint rule vs a strict at-bid/at-ask rule, with a `complejo` flag for prints outside the spread), `flujo` (per-minute public flow; the dealer is the opposite sign), `dealer` (the dealer sign table). Constants are in `constantes.py`.
 
 **Timezones:** every timestamp carries `America/New_York` explicitly. Databento `expiration` is midnight UTC, which falls on the *previous* day in NY. This was the project's first bug and has a regression test in `tests/test_catalogo.py`.
