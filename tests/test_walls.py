@@ -58,3 +58,34 @@ def test_evolucion_primer_dia_sin_cambios_y_resumen():
 def test_una_sola_fecha_no_rompe():
     d, z = evolucion({pd.Timestamp("2026-10-15"): AYER})
     assert len(d) == 1 and z["pos"].isna().all()
+
+
+# --- Contrato medido / supuesto ---
+
+def test_contrato_cubre_todas_las_columnas_y_no_se_solapa():
+    """Toda columna de datos que sale de walls.py está clasificada: si alguien agrega una sin
+    clasificarla, este test falla (la app no podría saber si etiquetarla como supuesta)."""
+    from src.walls import CLAVES, MEDIDAS, SUPUESTAS, zonas_por_tramo
+    assert not set(MEDIDAS) & set(SUPUESTAS)
+    d, z = evolucion({pd.Timestamp("2026-10-15"): AYER, pd.Timestamp("2026-10-16"): HOY})
+    hoy = HOY.assign(raiz="SPXW", dte=3)
+    for df in (d, z, zonas_dia(HOY).reset_index(), zonas_por_tramo(hoy)):
+        sin_clasificar = set(df.columns) - set(MEDIDAS) - set(SUPUESTAS) - set(CLAVES)
+        assert not sin_clasificar, sin_clasificar
+
+
+def test_es_supuesta_grita_con_columna_desconocida():
+    from src.walls import es_supuesta
+    assert es_supuesta("gex") and not es_supuesta("oi_c")
+    with pytest.raises(ValueError, match="sin clasificar"):
+        es_supuesta("gex_bonito")
+
+
+def test_zonas_por_tramo_parte_por_raiz_y_plazo():
+    from src.walls import zonas_por_tramo
+    c = HOY.assign(raiz=["SPX", "SPXW", "SPXW"], dte=[40, 2, 2])
+    t = zonas_por_tramo(c).set_index(["zona", "raiz", "tramo"])
+    assert t.loc[(7800, "SPX", ">35d"), "oi_c"] == 100
+    assert t.loc[(7800, "SPXW", "1-3d"), "gex"] == 330
+    assert t.loc[(7600, "SPXW", "1-3d"), "oi_p"] == 260
+    assert t["gex"].sum() == pytest.approx(HOY["gex_contrib"].sum())

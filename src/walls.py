@@ -18,6 +18,22 @@ import pandas as pd
 BANDA = 25
 CAMBIOS = ["doi_c", "doi_p", "oi_venc", "pos", "mer", "ven"]
 
+# CONTRATO medido / supuesto: toda columna de datos que sale de este módulo está en UNA de las dos listas
+# (lo verifica tests/test_walls.py). Quien muestre estos números (app/, scripts/) elige el estilo y la
+# etiqueta según la lista, nunca a mano.
+MEDIDAS = ["S", "oi_c", "oi_p", "pct_puts", "doi_c", "doi_p", "oi_venc"]      # sin signo: datos
+SUPUESTAS = ["gex", "pos", "mer", "ven"]        # usan el signo de HIPOTESIS_NULA_PUBLICO (gex.py)
+CLAVES = ["fecha", "zona", "raiz", "tramo"]     # identifican la fila, no son mediciones
+
+
+def es_supuesta(columna):
+    """True si la columna depende del signo supuesto; ValueError si no está clasificada (grita)."""
+    if columna in SUPUESTAS:
+        return True
+    if columna in MEDIDAS:
+        return False
+    raise ValueError(f"Columna sin clasificar en el contrato medido/supuesto: {columna!r}")
+
 
 def _preparar(cadena, banda):
     c = cadena.set_index("symbol") if "symbol" in cadena.columns else cadena
@@ -56,6 +72,19 @@ def zonas_dia(cadena, banda=BANDA):
     total = z["oi_c"] + z["oi_p"]
     z["pct_puts"] = (z["oi_p"] / total * 100).where(total > 0)
     return z
+
+
+def zonas_por_tramo(cadena, banda=BANDA):
+    """Como zonas_dia, pero partido por raíz y tramo de plazo (los de gex.TRAMOS_PLAZO).
+    Una fila por (zona, raiz, tramo) con oi_c, oi_p y gex. Para filtrar el perfil de un día."""
+    from src.gex import TRAMOS_PLAZO
+    c = _preparar(cadena, banda)
+    bordes, nombres = TRAMOS_PLAZO
+    c["tramo"] = pd.cut(c["dte"], bordes, labels=nombres).astype(str)
+    c["oi_c"] = c["open_interest"].where(c["tipo"] == "C", 0.0)
+    c["oi_p"] = c["open_interest"].where(c["tipo"] == "P", 0.0)
+    return (c.groupby(["zona", "raiz", "tramo"], as_index=False)
+            .agg(oi_c=("oi_c", "sum"), oi_p=("oi_p", "sum"), gex=("gex_contrib", "sum")))
 
 
 def evolucion(cadenas, banda=BANDA):
