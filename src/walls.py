@@ -15,6 +15,8 @@ Regla de tiempo (inventario.py): el OI del archivo de d es el del cierre de d-1 
 """
 import pandas as pd
 
+from src.simbolos import TRAMOS_PLAZO
+
 BANDA = 25
 CAMBIOS = ["doi_c", "doi_p", "oi_venc", "pos", "mer", "ven"]
 
@@ -75,9 +77,8 @@ def zonas_dia(cadena, banda=BANDA):
 
 
 def zonas_por_tramo(cadena, banda=BANDA):
-    """Como zonas_dia, pero partido por raíz y tramo de plazo (los de gex.TRAMOS_PLAZO).
+    """Como zonas_dia, pero partido por raíz y tramo de plazo (simbolos.TRAMOS_PLAZO).
     Una fila por (zona, raiz, tramo) con oi_c, oi_p y gex. Para filtrar el perfil de un día."""
-    from src.gex import TRAMOS_PLAZO
     c = _preparar(cadena, banda)
     bordes, nombres = TRAMOS_PLAZO
     c["tramo"] = pd.cut(c["dte"], bordes, labels=nombres).astype(str)

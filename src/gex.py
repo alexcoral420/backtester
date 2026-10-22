@@ -8,7 +8,7 @@ from config import TASA_LIBRE_RIESGO
 from src.black_scholes import calcular_iv, gamma_opcion
 from src.datos import descargar_cadena
 from src.odte.dealer import posicion_dealer
-from src.simbolos import PLAZOS, parsear_simbolos, plazo_anios
+from src.simbolos import PLAZOS, TRAMOS_PLAZO, parsear_simbolos, plazo_anios
 
 # ------------------------------------------------------------------------------------------------
 # HIPÓTESIS NULA del signo del dealer. NO es una regla ni una verdad: es un SUPUESTO POR DEFECTO.
@@ -105,9 +105,6 @@ def _cadena_mid_forward(fecha, precio_spx, raices, plazo):
 def gex_total(cadena):
     """Suma todas las contribuciones: el GEX total del día."""
     return cadena["gex_contrib"].sum()
-
-
-TRAMOS_PLAZO = ([0, 3, 7, 35, np.inf], ["1-3d", "4-7d", "8-35d", ">35d"])   # 1-3d = la próxima sesión, fin de semana incluido
 
 
 def gex_por_plazo(cadena):

@@ -50,6 +50,8 @@ def parsear_simbolo(simbolo: str) -> dict:
 HORA_VENCIMIENTO = {"SPX": (9, 30), "SPXW": (16, 0)}
 HORA_FOTO = (16, 0)                      # la cadena es la foto del cierre de 'fecha'
 PLAZOS = ("dias", "horas")
+# Tramos de días calendario al vencimiento (1-3d = la próxima sesión, fin de semana incluido)
+TRAMOS_PLAZO = ([0, 3, 7, 35, float("inf")], ["1-3d", "4-7d", "8-35d", ">35d"])
 
 
 def plazo_anios(fecha, venc, raiz, modo="dias"):
