@@ -23,9 +23,10 @@ CAMBIOS = ["doi_c", "doi_p", "oi_venc", "pos", "mer", "ven"]
 # CONTRATO medido / supuesto: toda columna de datos que sale de este módulo está en UNA de las dos listas
 # (lo verifica tests/test_walls.py). Quien muestre estos números (app/, scripts/) elige el estilo y la
 # etiqueta según la lista, nunca a mano.
-MEDIDAS = ["S", "oi_c", "oi_p", "pct_puts", "doi_c", "doi_p", "oi_venc"]      # sin signo: datos
+MEDIDAS = ["S", "dS", "oi_c", "oi_p", "oi_total", "pct_puts", "dist_pct", "doi_c", "doi_p", "oi_venc",
+           "oi_ini", "oi_fin", "pct_puts_ini", "pct_puts_fin", "renovado_pct"]          # sin signo: datos
 SUPUESTAS = ["gex", "pos", "mer", "ven"]        # usan el signo de HIPOTESIS_NULA_PUBLICO (gex.py)
-CLAVES = ["fecha", "zona", "raiz", "tramo"]     # identifican la fila, no son mediciones
+CLAVES = ["fecha", "zona", "raiz", "tramo", "flujo_de"]     # identifican la fila, no son mediciones
 
 
 def es_supuesta(columna):
@@ -110,9 +111,31 @@ def evolucion(cadenas, banda=BANDA):
         z["fecha"] = f
         filas_zona.append(z.reset_index())
         filas_dia.append(d)
+    dias = pd.DataFrame(filas_dia).set_index("fecha")
+    dias.insert(1, "dS", dias["S"].diff())
     zonas = pd.concat(filas_zona, ignore_index=True).reindex(
         columns=["fecha", "zona", "oi_c", "oi_p", "pct_puts", "gex"] + CAMBIOS)
     zonas[["oi_c", "oi_p"]] = zonas[["oi_c", "oi_p"]].fillna(0.0)       # zona que solo tenía vencidas
     no_primero = zonas["fecha"] != fechas[0]                            # el primer día no tiene contra qué
     zonas.loc[no_primero, CAMBIOS] = zonas.loc[no_primero, CAMBIOS].fillna(0.0)
-    return pd.DataFrame(filas_dia).set_index("fecha"), zonas
+    zonas["oi_total"] = zonas["oi_c"] + zonas["oi_p"]
+    zonas["S"] = zonas["fecha"].map(dias["S"])
+    zonas["dist_pct"] = (zonas["zona"] - zonas["S"]) / zonas["S"] * 100
+    return dias, zonas
+
+
+def rotacion(zonas, walls):
+    """Por wall, en toda la ventana de 'zonas' (salida de evolucion, ya recortada): carga al inicio y al
+    final (oi_ini/fin, pct_puts_ini/fin), aperturas netas sin vencimientos (doi_c, doi_p), lo que venció
+    (oi_venc), renovado_pct = vencido / OI inicial, y la descomposición del GEX (pos, mer, ven).
+    Los cambios de la PRIMERA fecha de la ventana no se cuentan (son contra un día fuera de ella)."""
+    z = zonas[zonas["zona"].isin(walls)].sort_values("fecha")
+    dentro = z[z["fecha"] > z["fecha"].min()]
+    r = dentro.groupby("zona")[CAMBIOS].sum()
+    g = z.groupby("zona")
+    r.insert(0, "oi_ini", g["oi_total"].first())
+    r.insert(1, "oi_fin", g["oi_total"].last())
+    r.insert(2, "pct_puts_ini", g["pct_puts"].first())
+    r.insert(3, "pct_puts_fin", g["pct_puts"].last())
+    r["renovado_pct"] = (r["oi_venc"] / r["oi_ini"] * 100).where(r["oi_ini"] > 0)
+    return r

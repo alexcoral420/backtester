@@ -65,11 +65,11 @@ def test_una_sola_fecha_no_rompe():
 def test_contrato_cubre_todas_las_columnas_y_no_se_solapa():
     """Toda columna de datos que sale de walls.py está clasificada: si alguien agrega una sin
     clasificarla, este test falla (la app no podría saber si etiquetarla como supuesta)."""
-    from src.walls import CLAVES, MEDIDAS, SUPUESTAS, zonas_por_tramo
+    from src.walls import CLAVES, MEDIDAS, SUPUESTAS, rotacion, zonas_por_tramo
     assert not set(MEDIDAS) & set(SUPUESTAS)
     d, z = evolucion({pd.Timestamp("2026-10-15"): AYER, pd.Timestamp("2026-10-16"): HOY})
     hoy = HOY.assign(raiz="SPXW", dte=3)
-    for df in (d, z, zonas_dia(HOY).reset_index(), zonas_por_tramo(hoy)):
+    for df in (d, z, zonas_dia(HOY).reset_index(), zonas_por_tramo(hoy), rotacion(z, [7600, 7800]).reset_index()):
         sin_clasificar = set(df.columns) - set(MEDIDAS) - set(SUPUESTAS) - set(CLAVES)
         assert not sin_clasificar, sin_clasificar
 
@@ -89,3 +89,19 @@ def test_zonas_por_tramo_parte_por_raiz_y_plazo():
     assert t.loc[(7800, "SPXW", "1-3d"), "gex"] == 330
     assert t.loc[(7600, "SPXW", "1-3d"), "oi_p"] == 260
     assert t["gex"].sum() == pytest.approx(HOY["gex_contrib"].sum())
+
+
+def test_rotacion_cuenta_abierto_y_vencido_sin_el_primer_dia():
+    from src.walls import rotacion
+    _, z = evolucion({pd.Timestamp("2026-10-15"): AYER, pd.Timestamp("2026-10-16"): HOY})
+    r = rotacion(z, [7600]).loc[7600]
+    assert (r["oi_ini"], r["oi_fin"]) == (250, 260)               # B 200 + V 50 -> B 260
+    assert (r["doi_p"], r["oi_venc"], r["renovado_pct"]) == (60, 50, 20)
+    assert r["pos"] + r["mer"] + r["ven"] == pytest.approx(-1300 - (-1400))
+
+
+def test_evolucion_agrega_dS_y_distancia():
+    d, z = evolucion({pd.Timestamp("2026-10-15"): AYER, pd.Timestamp("2026-10-16"): HOY.assign(S=7750.0)})
+    assert d["dS"].iloc[1] == 50
+    fila = z[(z["fecha"] == pd.Timestamp("2026-10-16")) & (z["zona"] == 7800)].iloc[0]
+    assert fila["dist_pct"] == pytest.approx(50 / 7750 * 100) and fila["oi_total"] == 130
