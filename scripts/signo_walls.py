@@ -1,6 +1,7 @@
 """
 Uso:  python scripts/signo_walls.py --solo-costo               (consulta el costo, NO descarga: $0)
       python scripts/signo_walls.py                            (descarga lo que falte con UNA confirmación)
+      python scripts/signo_walls.py --paquetes                 (además: combos C+P del mismo strike, $0 con caché)
       opciones: --zonas 7700 7725 7750 7775 8000   zonas de 25 puntos a medir (default: transición + 8000)
                 --cobertura 0.8                    por zona y tipo, series que cubren ese % del |ΔOI|
 
@@ -27,6 +28,8 @@ from src.datos import _cliente
 from src.gex import HIPOTESIS_NULA_PUBLICO
 from src.odte.clasificacion import clasificar_trades
 from src.odte.trades import _parametros_tcbbo, ruta_cache_tcbbo
+from src.simbolos import parsear_simbolos
+from src.paquetes import VENTANA, combos_cp, resumen_combos
 from src.signo_walls import UMBRAL_COBERTURA, comparar, elegir_series, flujo_por_dia, pares_doi
 
 DESDE, HASTA = "09:30", "16:15"
@@ -36,6 +39,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--zonas", nargs="+", type=float, default=[7700, 7725, 7750, 7775, 8000])
 ap.add_argument("--cobertura", type=float, default=UMBRAL_COBERTURA)
 ap.add_argument("--solo-costo", action="store_true")
+ap.add_argument("--paquetes", action="store_true")
 args = ap.parse_args()
 
 rutas = sorted(glob.glob(PATRON))
@@ -100,3 +104,26 @@ enteros = ["series", "pares", "delta_oi", "compra", "venta", "indet", "complejo"
 print(r.astype({c: "int64" for c in enteros}).rename(index=int, level=0).round(0).to_string())
 print("\nVeredictos (zona-tipo):", r["veredicto"].value_counts().to_dict())
 print("Nada se fusionó en un GEX: el signo medido y el supuesto quedan lado a lado.")
+if not args.paquetes:
+    raise SystemExit
+
+# ---------------- paquetes: combos C+P del mismo strike (src/paquetes.py) ----------------
+tr = tr.sort_index()
+combos = pd.concat([combos_cp(g) for _, g in tr.groupby("dia")], ignore_index=True)
+combos = combos[combos["zona"].isin(args.zonas)]
+vol = tr.assign(zona=tr["symbol"].map({s: z for s, (z, _) in elegidas.items()})).groupby("zona")["size"].sum()
+res = resumen_combos(combos, vol)
+res.to_csv("data/b2/paquetes_walls.csv")
+print(f"\n=== Paquetes: combos C+P mismo strike y vencimiento, mismo tamaño, en {VENTANA} (lado de cada pata INFERIDO) ===")
+print("sintetico: gamma neta 0 sea cual sea la dirección (el signo no importa; la nula también le da 0)")
+print("straddle:  gamma ±2γ que la nula da como 0; straddle_neto + = el público COMPRÓ gamma (dealer corto)")
+print("Contratos por combo (una pata); en_combos y volumen cuentan las dos patas. Es FLUJO, no OI.")
+print(res.rename(index=int).round(1).to_string())
+desplazados = []
+for seg in (3, 17, 61):                                      # control placebo: desplazar las calls rompe los paquetes
+    t = tr.copy()
+    es_c = (parsear_simbolos(t["symbol"])["tipo"] == "C").to_numpy()
+    t.index = t.index.where(~es_c, t.index + pd.Timedelta(seconds=seg))
+    desplazados.append(sum(len(combos_cp(g.sort_index())) for _, g in t.groupby("dia")))
+print(f"Placebo (calls desplazadas 3/17/61 s): {desplazados} combos vs {len(combos)} reales (todas las zonas: "
+      f"{sum(len(combos_cp(g)) for _, g in tr.groupby('dia'))})")
