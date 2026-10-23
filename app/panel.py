@@ -5,8 +5,10 @@ Panel de walls (SPX+SPXW, plazo horas): mapa, perfil del día, ficha de un wall,
 cambio de GEX y rotación. SOLO DIBUJA: lee las cadenas ya procesadas de data/procesado/ (las genera
 scripts/walls_tiempo.py) y todos los números salen de src/walls.py. Nunca descarga ni pide la API key.
 
-Convención medido / supuesto: la decide SIEMPRE el contrato de walls.py (es_supuesta), nunca a mano.
+Convención medido / modelo / supuesto: la decide SIEMPRE el contrato de walls.py (clase), nunca a mano.
   MEDIDO   (OI, ΔOI, % puts, SPX):  escalas de un solo tono, barras sólidas, líneas continuas
+  MODELO   (gex_bruto, desbalance): gamma Black-Scholes · OI SIN signo; escala violeta, barras punteadas,
+                                    "MODELO" en título, eje, hover y tablas
   SUPUESTO (gex, pos, mer, ven):    escala divergente azul/rojo con gris en 0 (pos/mer/ven: colores propios
                                     distintos de calls/puts), barras RAYADAS, líneas
                                     discontinuas, "SUPUESTO" en título, eje/barra de color, hover y tablas
@@ -24,7 +26,7 @@ import streamlit as st
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.walls import CLAVES, es_supuesta, evolucion, rotacion, zonas_por_tramo
+from src.walls import CLAVES, EN_DOLARES, clase, es_supuesta, evolucion, rotacion, zonas_por_tramo
 
 CARPETA = "data/procesado"
 PATRON = os.path.join(CARPETA, "cadena_SPX+SPXW_horas_*.parquet")
@@ -41,8 +43,13 @@ else:
     CALLS, PUTS = "#2a78d6", "#eb6834"
     COLOR_COMPONENTE = {"pos": "#1baf7a", "mer": "#eda100", "ven": "#e87ba4"}
     TINTA, TINTA_SUAVE, SUPERFICIE, MEDIO = "#0b0b0b", "#52514e", "#fcfcfb", "#e1e0d9"
-SEQ_AZUL = ["#cde2fb", "#86b6ef", "#3987e5", "#1c5cab", "#0d366b"]
+# Rampa secuencial azul completa (palette.md, pasos 100->700): 9 pasos en vez de 5 para distinguir cargas.
+# Claro: el paso claro = poco y se funde con la superficie. Oscuro: invertida (lo poco se funde con lo oscuro).
+_AZUL_9 = ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#2a78d6", "#256abf", "#1c5cab", "#104281", "#0d366b"]
+SEQ_AZUL = _AZUL_9[::-1] if _OSCURO else _AZUL_9
 SEQ_NARANJA = ["#fde4d6", "#f6b08f", "#eb6834", "#b84a1f", "#7a2e10"]
+if _OSCURO:
+    SEQ_NARANJA = SEQ_NARANJA[::-1]
 DIVERGENTE = [[0.0, "#b3261e"], [0.25, "#e66767"], [0.5, MEDIO], [0.75, "#5598e7"], [1.0, "#104281"]]
 POSITIVO, NEGATIVO = "#3987e5", "#e66767"          # polos de DIVERGENTE, para barras supuestas por signo
 NEUTRO = "#898781"
@@ -51,7 +58,16 @@ ETIQUETAS = {
     "oi_c": "OI calls", "oi_p": "OI puts", "oi_total": "OI total", "pct_puts": "% del OI en puts",
     "doi_c": "ΔOI calls", "doi_p": "ΔOI puts", "oi_venc": "OI vencido", "S": "SPX", "dS": "ΔSPX",
     "gex": "GEX", "pos": "posicionamiento", "mer": "mercado", "ven": "vencidas",
+    "gex_bruto": "gamma bruta", "gex_bruto_c": "gamma bruta calls", "gex_bruto_p": "gamma bruta puts",
+    "desbalance_pct": "desbalance calls/puts",
 }
+# Escala secuencial por CLASE (regla: el estilo lo decide el contrato). Medido: azul (magnitud) / naranja (0-100).
+# Modelo: violeta (ColorBrewer "Purples", un solo tono), distinto de lo medido aunque no haya patrón en un heatmap.
+SEQ_VIOLETA = ["#efedf5", "#dadaeb", "#bcbddc", "#9e9ac8", "#807dba", "#6a51a3", "#54278f", "#3f007d"]
+if _OSCURO:
+    SEQ_VIOLETA = SEQ_VIOLETA[::-1]
+ACOTADAS = ("pct_puts", "desbalance_pct")          # 0-100: escala lineal fija; el resto son magnitudes con cola larga
+ESCALAS = ("logarítmica", "por percentiles", "lineal")      # para magnitudes con cola larga (OI, gamma bruta)
 
 
 # ---------------------------------------------------------------- estilo derivado del contrato
@@ -62,34 +78,65 @@ def supuesta(col):
 
 def titulo(col, texto=None):
     t = texto or ETIQUETAS.get(col, col)
-    return f"SUPUESTO · {t} (signo de la hipótesis nula)" if supuesta(col) else f"MEDIDO · {t}"
+    return {"supuesto": f"SUPUESTO · {t} (signo de la hipótesis nula)",
+            "modelo": f"MODELO · {t} (gamma Black-Scholes, sin signo)", "medido": f"MEDIDO · {t}"}[clase(col)]
+
+
+def unidad(col):
+    """Unidad + clase para ejes, barras de color, hover y tablas: la clase viaja con el número."""
+    k = clase(col)
+    if k == "medido":
+        return ""
+    return ("$B" if col in EN_DOLARES else "%") + (" (SUPUESTO)" if k == "supuesto" else " (MODELO)")
 
 
 def etiqueta_eje(col, unidad_medida=""):
-    """Para ejes, barras de color y hover: la palabra SUPUESTO viaja con el número."""
-    return f"{ETIQUETAS.get(col, col)} $B (SUPUESTO)" if supuesta(col) else ETIQUETAS.get(col, col) + unidad_medida
+    return ETIQUETAS.get(col, col) + (" " + unidad(col) if clase(col) != "medido" else unidad_medida)
 
 
 def eje_comun(cols, unidad_medida=""):
     """Título de un eje que comparte varias columnas: exige que sean todas de la MISMA clase (regla: un eje
-    nunca mezcla medido y supuesto)."""
-    clases = {supuesta(c) for c in cols}
+    nunca mezcla medido, modelo y supuesto)."""
+    clases = {clase(c) for c in cols}
     if len(clases) != 1:
-        raise ValueError(f"Un eje no puede mezclar medido y supuesto: {cols}")
-    return "$B (SUPUESTO)" if clases.pop() else unidad_medida
+        raise ValueError(f"Un eje no puede mezclar clases (medido/modelo/supuesto): {cols}")
+    return unidad(cols[0]) or unidad_medida
 
 
 def a_miles_de_millones(df):
-    """Toda columna supuesta presente está en $: se pasa a $B (las medidas no se tocan)."""
+    """Toda columna en $ (supuesta o de modelo) se pasa a $B; las medidas no se tocan."""
     for c in df.columns:
-        if c not in CLAVES and supuesta(c):
+        if c not in CLAVES and clase(c) != "medido" and c in EN_DOLARES:
             df[c] = df[c] / 1e9
     return df
 
 
 def patron(col):
-    """Barras rayadas para lo supuesto (segunda codificación además del texto)."""
-    return dict(shape="/", fgcolor="rgba(255,255,255,0.55)", solidity=0.25) if supuesta(col) else None
+    """Segunda codificación además del texto: rayado = supuesto, punteado = modelo, sólido = medido."""
+    return {"supuesto": dict(shape="/", fgcolor="rgba(255,255,255,0.55)", solidity=0.25),
+            "modelo": dict(shape=".", fgcolor="rgba(255,255,255,0.6)", solidity=0.3),
+            "medido": None}[clase(col)]
+
+
+def escala_magnitud(m, modo):
+    """Color para una magnitud >= 0 con cola larga (8000 tiene ~2M contratos, el resto 50-500k).
+    Devuelve (z para el color, tickvals, ticktext) con los ticks en la unidad REAL; el hover usa el valor real.
+      logarítmica:     cada paso de color = x veces más carga (distingue 50k de 200k sin que 8000 lo tape)
+      por percentiles: cada color = la misma cantidad de celdas (máximo contraste de orden, pierde proporción)
+      lineal:          proporcional (8000 satura y el resto queda claro)"""
+    v = m.values.astype(float)
+    pos = v[np.isfinite(v) & (v > 0)]
+    if not pos.size or modo == "lineal":
+        return v, None, None
+    if modo == "logarítmica":
+        z = np.log10(np.where(v > 0, v, np.nan))
+        lo, hi = int(np.floor(np.log10(pos.min()))), int(np.ceil(np.log10(pos.max())))
+        ticks = [b * 10.0 ** e for e in range(lo, hi + 1) for b in (1, 2, 5) if pos.min() <= b * 10.0 ** e <= pos.max()]
+        return z, np.log10(ticks), [f"{t:,.3g}" for t in ticks]
+    plano = pd.Series(v.ravel()).where(lambda x: x > 0)
+    z = (plano.rank(pct=True) * 100).to_numpy().reshape(v.shape)
+    q = [0, 25, 50, 75, 90, 100]
+    return z, q, [f"p{p} · {np.nanpercentile(pos, p):,.3g}" for p in q]
 
 
 def color_barras(col, valores, base):
@@ -98,12 +145,12 @@ def color_barras(col, valores, base):
 
 
 def linea(col, color):
-    return dict(color=color, width=2, dash="dash" if supuesta(col) else "solid")
+    return dict(color=color, width=2, dash={"supuesto": "dash", "modelo": "dot", "medido": "solid"}[clase(col)])
 
 
 def tabla(df):
     """Tabla con cada columna rotulada según el contrato. Una columna sin clasificar hace fallar la página."""
-    nombres = {c: (c if c in CLAVES else f"{c} [SUPUESTO $B]" if supuesta(c) else c) for c in df.columns}
+    nombres = {c: (c if c in CLAVES or clase(c) == "medido" else f"{c} [{unidad(c)}]") for c in df.columns}
     st.dataframe(df.rename(columns=nombres).round(2), width="stretch")
 
 
@@ -152,6 +199,8 @@ with st.sidebar:
                                 format_func=lambda x: x.strftime("%d-%b"))
     dist = st.slider("Zonas a ≤ % del spot", 1.0, 8.0, 4.0, 0.5)
     st.caption("**MEDIDO**: OI, ΔOI, % puts, SPX (sin signo).  \n"
+               "**MODELO**: gamma bruta (calls y puts SUMADAS, sin signo) y desbalance calls/puts. "
+               "Punteado = modelo.  \n"
                "**SUPUESTO**: GEX y su descomposición, con el signo de la hipótesis nula "
                "(público vende calls, compra puts). Rayado o discontinuo = supuesto.")
     st.caption("ΔOI de una fecha = flujo del día de mercado ANTERIOR.")
@@ -169,20 +218,39 @@ tab_mapa, tab_dia, tab_wall, tab_desc, tab_rot = st.tabs(
 
 # ---------------------------------------------------------------- 1. mapa
 with tab_mapa:
-    metrica = st.radio("Color", ["oi_total", "pct_puts", "gex"], horizontal=True,
-                       format_func=lambda c: f"{ETIQUETAS[c]} ({'supuesto' if supuesta(c) else 'medido'})")
+    c1, c2 = st.columns([3, 2])
+    metrica = c1.radio("Color", ["oi_total", "pct_puts", "gex_bruto", "desbalance_pct", "gex"], horizontal=True,
+                       format_func=lambda c: f"{ETIQUETAS[c]} ({clase(c)})")
+    cola_larga = not supuesta(metrica) and metrica not in ACOTADAS
+    modo = c2.radio("Escala de color", ESCALAS, horizontal=True, disabled=not cola_larga,
+                    help="Solo para OI total y gamma bruta. Logarítmica: cada paso de color = x veces más carga. "
+                         "Por percentiles: cada color = la misma cantidad de celdas (orden, no proporción).")
     m = Zv.pivot(index="zona", columns="fecha", values=metrica)
+    barra = dict(title=etiqueta_eje(metrica))
+    z = m.values
     if supuesta(metrica):
         lim = float(np.nanmax(np.abs(m.values)))
         escala = dict(colorscale=DIVERGENTE, zmid=0, zmin=-lim, zmax=lim)
+    elif cola_larga:
+        z, tv, tt = escala_magnitud(m, modo)
+        escala = dict(colorscale=SEQ_VIOLETA if clase(metrica) == "modelo" else SEQ_AZUL)
+        if tv is not None:
+            barra.update(tickvals=list(tv), ticktext=tt, title=etiqueta_eje(metrica) + f" · escala {modo}")
+    elif clase(metrica) == "modelo":
+        # desbalance invertido: oscuro = 0 = calls y puts se cancelan (lo que hay que ver)
+        escala = dict(colorscale=SEQ_VIOLETA[::-1], zmin=0, zmax=100)
+        barra.update(tickvals=[0, 50, 100], ticktext=["0 · balanceado", "50", "100 · un solo tipo"])
     else:
-        escala = dict(colorscale=SEQ_AZUL if metrica == "oi_total" else SEQ_NARANJA)
+        escala = dict(colorscale=SEQ_NARANJA, zmin=0, zmax=100)
     piv = lambda c: Zv.pivot(index="zona", columns="fecha", values=c).values
+    fmt = {"oi_total": ",.0f", "pct_puts": ".0f", "gex_bruto": ",.2f", "desbalance_pct": ".0f", "gex": "+.2f"}[metrica]
     fig = go.Figure(go.Heatmap(
-        x=m.columns, y=m.index, z=m.values, customdata=np.dstack([piv("oi_c"), piv("oi_p"), piv("gex")]),
-        xgap=2, ygap=2, colorbar=dict(title=etiqueta_eje(metrica)), **escala,
-        hovertemplate=("%{x|%d-%b} · zona %{y:.0f}<br>" + etiqueta_eje(metrica) + ": %{z:,.1f}"
+        x=m.columns, y=m.index, z=z, colorbar=barra, xgap=2, ygap=2, **escala,
+        customdata=np.dstack([piv("oi_c"), piv("oi_p"), piv("gex"), piv("gex_bruto"), piv("desbalance_pct"),
+                              m.values]),
+        hovertemplate=("%{x|%d-%b} · zona %{y:.0f}<br>" + etiqueta_eje(metrica) + ": %{customdata[5]:" + fmt + "}"
                        + "<br>OI calls %{customdata[0]:,.0f} · OI puts %{customdata[1]:,.0f}"
+                       + "<br>gamma bruta %{customdata[3]:,.2f} $B (MODELO) · desbalance %{customdata[4]:.0f}% (MODELO)"
                        + "<br>GEX %{customdata[2]:+.2f} $B (SUPUESTO)<extra></extra>")))
     fig.add_trace(go.Scatter(x=Dv.index, y=Dv["S"], mode="lines+markers", name="SPX cierre (medido)",
                              line=linea("S", TINTA), marker=dict(size=8, color=SUPERFICIE, line=dict(color=TINTA, width=2)),
@@ -190,7 +258,16 @@ with tab_mapa:
     fig.update_layout(title=titulo(metrica, f"{ETIQUETAS[metrica]} por zona y día, con el SPX encima"),
                       height=650, xaxis=eje_fecha, yaxis_title="zona (25 pts)", legend=dict(orientation="h"))
     st.plotly_chart(fig, width="stretch")
-    if supuesta(metrica):
+    if metrica == "gex_bruto":
+        st.caption("MODELO, sin signo: gamma de las calls + gamma de las puts de la zona, en $B por 1% (no se restan). "
+                   "Es el tamaño de la gamma abierta ahí. Cuánto de eso cubre un dealer, y en qué dirección, depende de "
+                   "quién tiene cada lado: eso es SUPUESTO.")
+    elif clase(metrica) == "modelo":
+        st.caption("MODELO, sin signo: |gamma bruta calls − puts| / bruta. Oscuro (cerca de 0) = calls y puts casi se "
+                   "cancelan: ahí el GEX neto (SUPUESTO) es la resta de dos números grandes y un cambio chico en el "
+                   "signo lo cambia mucho. Claro (cerca de 100) = un solo tipo: el GEX neto no sale de una resta, pero "
+                   "su signo SIGUE siendo supuesto (si ese tipo tuviera el signo contrario, se invierte entero).")
+    elif supuesta(metrica):
         st.caption("Con GEX, un cambio de color en una fila puede venir de que el PRECIO se acercó o alejó "
                    "(componente 'mercado'), no solo de posiciones nuevas: ver la pestaña 'De dónde vino el cambio'. "
                    "El color (+/−) es SUPUESTO.")
@@ -208,8 +285,10 @@ with tab_dia:
                             default=["1-3d", "4-7d", "8-35d", ">35d"])
     S = float(D.loc[dia, "S"])
     t = t[t["raiz"].isin(raices) & t["tramo"].isin(tramos) & t["zona"].between(S * (1 - dist / 100), S * (1 + dist / 100))]
-    g = t.groupby("zona")[["oi_c", "oi_p", "gex"]].sum().reset_index()
+    g = t.groupby("zona")[["oi_c", "oi_p", "gex", "gex_bruto_c", "gex_bruto_p"]].sum().reset_index()
     g["pct_puts"] = (g["oi_p"] / (g["oi_c"] + g["oi_p"]) * 100).where(g["oi_c"] + g["oi_p"] > 0)
+    g["gex_bruto"] = g["gex_bruto_c"] + g["gex_bruto_p"]
+    g["desbalance_pct"] = ((g["gex_bruto_c"] - g["gex_bruto_p"]).abs() / g["gex_bruto"] * 100).where(g["gex_bruto"] > 0)
     izq, der = st.columns(2)
     with izq:
         f1 = go.Figure()
@@ -232,6 +311,38 @@ with tab_dia:
         f2.update_layout(title=titulo("gex", "GEX por zona ($B por 1% de movimiento)"), bargap=0.15, height=700,
                          xaxis_title=etiqueta_eje("gex"), yaxis_title="zona", showlegend=False)
         st.plotly_chart(f2, width="stretch")
+    izq2, der2 = st.columns(2)
+    with izq2:
+        f3 = go.Figure()
+        # Agrupadas y las dos >= 0: NO espejadas (calls +, puts − imitaría el signo de la hipótesis nula)
+        for col, color, nombre in [("gex_bruto_c", CALLS, "calls"), ("gex_bruto_p", PUTS, "puts")]:
+            f3.add_trace(go.Bar(y=g["zona"], x=g[col], orientation="h", name=nombre,
+                                marker=dict(color=color, pattern=patron(col)),
+                                hovertemplate="zona %{y:.0f} · " + etiqueta_eje(col) + " %{x:,.2f}<extra></extra>"))
+        f3.add_hline(y=S, line=dict(color=TINTA, width=2, dash="dot"), annotation_text=f"SPX {S:,.0f}")
+        f3.update_layout(title=titulo("gex_bruto", "Gamma bruta por zona, calls y puts lado a lado (sin restar)"),
+                         barmode="group", bargap=0.15, bargroupgap=0.05, height=700,
+                         xaxis=dict(title=eje_comun(["gex_bruto_c", "gex_bruto_p"]), rangemode="tozero"),
+                         yaxis_title="zona", legend=dict(orientation="h"))
+        st.plotly_chart(f3, width="stretch")
+    with der2:
+        f4 = go.Figure(go.Bar(y=g["zona"], x=g["desbalance_pct"], orientation="h", name="desbalance",
+                              marker=dict(color=NEUTRO, pattern=patron("desbalance_pct")),
+                              customdata=g["gex_bruto"],
+                              hovertemplate="zona %{y:.0f} · desbalance %{x:.0f}% (MODELO)"
+                                            "<br>gamma bruta %{customdata:,.2f} $B (MODELO)<extra></extra>"))
+        f4.add_vrect(x0=0, x1=30, fillcolor=TINTA_SUAVE, opacity=0.12, line_width=0,
+                     annotation_text="calls ≈ puts: el GEX neto (SUPUESTO) es una resta", annotation_position="top left")
+        f4.add_hline(y=S, line=dict(color=TINTA, width=2, dash="dot"), annotation_text=f"SPX {S:,.0f}")
+        f4.update_layout(title=titulo("desbalance_pct", "Desbalance calls/puts: ¿el GEX neto sale de una resta?"),
+                         bargap=0.15, height=700, xaxis=dict(range=[0, 100], title=etiqueta_eje("desbalance_pct")),
+                         yaxis_title="zona", showlegend=False)
+        st.plotly_chart(f4, width="stretch")
+    st.caption("Gamma bruta y desbalance son MODELO (Black-Scholes con la IV de cierre), sin signo. Desbalance bajo "
+               "(banda sombreada, < 30%) = calls y puts casi se cancelan: ahí el GEX de arriba (SUPUESTO) es la resta "
+               "de dos números grandes y un cambio chico en el signo lo cambia mucho. Fuera de la banda el GEX NO "
+               "pasa a ser medido: solo deja de depender de una resta; su signo sigue siendo supuesto. "
+               "El 30% es una guía visual, no un umbral medido.")
     with st.expander("Tabla"):
         tabla(g.set_index("zona"))
 
@@ -278,7 +389,8 @@ with tab_wall:
                      yaxis_title=etiqueta_eje("gex"), showlegend=False)
     st.plotly_chart(fc, width="stretch")
     with st.expander("Tabla"):
-        tabla(w[["flujo_de", "S", "oi_c", "oi_p", "pct_puts", "doi_c", "doi_p", "oi_venc", "gex", "pos", "mer", "ven"]])
+        tabla(w[["flujo_de", "S", "oi_c", "oi_p", "pct_puts", "doi_c", "doi_p", "oi_venc", "gex_bruto", "desbalance_pct",
+                 "gex", "pos", "mer", "ven"]])
 
 # ---------------------------------------------------------------- 4. descomposición
 with tab_desc:

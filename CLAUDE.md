@@ -78,10 +78,13 @@ Do not bypass this, and do not run a script on uncached dates without the user k
 Here k = gex_contrib/OI. The ΔOI excludes expirations, because an expiry is not a closed position. The script processes SPX+SPXW with `plazo="horas"` and caches each processed chain in `data/procesado/`. That folder is gitignored and saves ~2 min per day of compute. Use `--sin` for days missing at Databento (2026-10-20 has no data); the flow label then shows the extra sessions. Finding over 24-sep..21-oct 2026: the total GEX mostly tracks spot. The "mercado" part had the same sign as the SPX move on 17 of 18 days. Individual walls persist by **rotation**: weekly expiries are replaced by new OI at the same strikes.
 
 **Measured vs assumed contract and the panel:**
-- `walls.py` declares `MEDIDAS`, `SUPUESTAS` and `CLAVES`. `es_supuesta(col)` raises on an unclassified column, and a test requires every output column to be classified.
+- `walls.py` declares `MEDIDAS`, `MODELO`, `SUPUESTAS` and `CLAVES`. `clase(col)` returns `"medido"`, `"modelo"` or `"supuesto"`; it and `es_supuesta(col)` raise on an unclassified column. A test requires every output column to be classified.
+- **MODELO** = Black-Scholes gamma · OI with **no sign**: `gex_bruto` (calls + puts, added, not netted) and `desbalance_pct` = |calls − puts| / gross. Under the null hypothesis it equals |gex| / gex_bruto exactly, but it is defined sign-free. A low value means the net GEX is a subtraction of two large numbers, so it is fragile to the sign assumption. A value near 100 does not make the sign measured.
 - `app/panel.py` is a Streamlit + Plotly panel, run with `streamlit run app/panel.py`. It only reads `data/procesado/`: it never imports `datos`/`config`, so it needs no API key and cannot spend credit.
 - All panel styling comes from the contract:
   - Assumed values get a diverging scale, hatched bars, dashed lines and "SUPUESTO" in titles, hovers and table headers.
+  - Model values get a violet scale, dotted bars and lines, and "MODELO". Gross gamma is never mirrored (calls +, puts −), because that would mimic the assumed sign.
+  - The map's OI and gross-gamma heatmaps default to a **log** color scale, with percentile and linear options. On a linear scale 384 of 471 cells fell in the lightest step, because 8000 (~2.3M) dwarfs the other zones (50k–600k).
   - Measured values get single-hue scales and solid marks.
   - Light and dark palettes are validated separately with the dataviz validator.
 - Subagent `.claude/agents/revisor-supuesto-medido.md` is read-only (Read/Grep/Glob). Run it after changing the panel or any script that shows GEX.

@@ -65,18 +65,19 @@ def test_una_sola_fecha_no_rompe():
 def test_contrato_cubre_todas_las_columnas_y_no_se_solapa():
     """Toda columna de datos que sale de walls.py está clasificada: si alguien agrega una sin
     clasificarla, este test falla (la app no podría saber si etiquetarla como supuesta)."""
-    from src.walls import CLAVES, MEDIDAS, SUPUESTAS, rotacion, zonas_por_tramo
-    assert not set(MEDIDAS) & set(SUPUESTAS)
+    from src.walls import CLAVES, MEDIDAS, MODELO, SUPUESTAS, rotacion, zonas_por_tramo
+    assert not set(MEDIDAS) & set(SUPUESTAS) and not set(MODELO) & (set(MEDIDAS) | set(SUPUESTAS))
     d, z = evolucion({pd.Timestamp("2026-10-15"): AYER, pd.Timestamp("2026-10-16"): HOY})
     hoy = HOY.assign(raiz="SPXW", dte=3)
     for df in (d, z, zonas_dia(HOY).reset_index(), zonas_por_tramo(hoy), rotacion(z, [7600, 7800]).reset_index()):
-        sin_clasificar = set(df.columns) - set(MEDIDAS) - set(SUPUESTAS) - set(CLAVES)
+        sin_clasificar = set(df.columns) - set(MEDIDAS) - set(MODELO) - set(SUPUESTAS) - set(CLAVES)
         assert not sin_clasificar, sin_clasificar
 
 
 def test_es_supuesta_grita_con_columna_desconocida():
-    from src.walls import es_supuesta
-    assert es_supuesta("gex") and not es_supuesta("oi_c")
+    from src.walls import clase, es_supuesta
+    assert es_supuesta("gex") and not es_supuesta("oi_c") and not es_supuesta("gex_bruto")
+    assert (clase("gex"), clase("gex_bruto"), clase("oi_c")) == ("supuesto", "modelo", "medido")
     with pytest.raises(ValueError, match="sin clasificar"):
         es_supuesta("gex_bonito")
 
@@ -116,3 +117,13 @@ def test_rotacion_wall_sin_fila_el_primer_dia_queda_nan():
     assert pd.isna(r.loc[7775, "oi_ini"]) and pd.isna(r.loc[7775, "renovado_pct"])
     assert (r.loc[7775, "oi_fin"], r.loc[7775, "doi_c"]) == (40, 40)
     assert r.loc[7600, "oi_ini"] == 250
+
+
+def test_gex_bruto_suma_sin_signo_y_desbalance():
+    """Zona 7800: A (k 12, OI 100) y N (k 11, OI 30) calls -> bruto 1530, todo calls: desbalance 100.
+    Con calls y puts de igual bruto el desbalance es 0 aunque cada lado sea grande (GEX neto frágil)."""
+    z = zonas_dia(HOY)
+    assert (z.loc[7800, "gex_bruto"], z.loc[7800, "desbalance_pct"]) == (1530, 100)
+    assert z.loc[7600, "gex_bruto_p"] == 1300 and z.loc[7600, "gex"] == -1300
+    eq = zonas_dia(_cadena([("X", "C", 8000.0, 100, 10.0), ("Y", "P", 8000.0, 100, -10.0)]))
+    assert (eq.loc[8000, "gex"], eq.loc[8000, "gex_bruto"], eq.loc[8000, "desbalance_pct"]) == (0, 2000, 0)

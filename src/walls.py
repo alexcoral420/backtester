@@ -8,9 +8,13 @@ Entre dos fotos de la cadena (ayer, hoy), el cambio de GEX se parte en tres, y l
   vencidas        = - OI_ayer · k_ayer             estaban ayer y ya no (vencieron)
 El ΔOI de posicionamiento NO incluye las vencidas: un vencimiento no es una posición cerrada.
 
-Qué es medido y qué supuesto:
+Qué es medido, qué es modelo y qué supuesto:
   OI, ΔOI y % de puts           MEDIDOS (sin signo)
+  gex_bruto, desbalance_pct      MODELO: gamma Black-Scholes · OI en $, SIN signo (calls y puts se suman, no se restan)
   gex, posicionamiento, mercado  usan el signo SUPUESTO (hipótesis nula de gex.py)
+desbalance_pct = |bruto calls - bruto puts| / bruto · 100. 100 = todo de un tipo: el GEX neto no sale de una resta.
+0 = balanceado: el GEX neto es la diferencia de dos números grandes y depende entero del supuesto (FRÁGIL).
+Con la hipótesis nula (calls +, puts -) vale exactamente |gex| / gex_bruto, pero se define sin signo.
 Regla de tiempo (inventario.py): el OI del archivo de d es el del cierre de d-1 -> su ΔOI es el flujo de d-1.
 """
 import pandas as pd
@@ -20,22 +24,41 @@ from src.simbolos import TRAMOS_PLAZO
 BANDA = 25
 CAMBIOS = ["doi_c", "doi_p", "oi_venc", "pos", "mer", "ven"]
 
-# CONTRATO medido / supuesto: toda columna de datos que sale de este módulo está en UNA de las dos listas
+# CONTRATO medido / modelo / supuesto: toda columna de datos que sale de este módulo está en UNA de las tres listas
 # (lo verifica tests/test_walls.py). Quien muestre estos números (app/, scripts/) elige el estilo y la
 # etiqueta según la lista, nunca a mano.
 MEDIDAS = ["S", "dS", "oi_c", "oi_p", "oi_total", "pct_puts", "dist_pct", "doi_c", "doi_p", "oi_venc",
            "oi_ini", "oi_fin", "pct_puts_ini", "pct_puts_fin", "renovado_pct"]          # sin signo: datos
+MODELO = ["gex_bruto", "gex_bruto_c", "gex_bruto_p", "desbalance_pct"]   # gamma BS · OI, sin signo: no es supuesta
 SUPUESTAS = ["gex", "pos", "mer", "ven"]        # usan el signo de HIPOTESIS_NULA_PUBLICO (gex.py)
+EN_DOLARES = ["gex", "pos", "mer", "ven", "gex_bruto", "gex_bruto_c", "gex_bruto_p"]
 CLAVES = ["fecha", "zona", "raiz", "tramo", "flujo_de"]     # identifican la fila, no son mediciones
+
+
+def clase(columna):
+    """'supuesto', 'modelo' o 'medido'; ValueError si la columna no está clasificada (grita)."""
+    for nombre, lista in (("supuesto", SUPUESTAS), ("modelo", MODELO), ("medido", MEDIDAS)):
+        if columna in lista:
+            return nombre
+    raise ValueError(f"Columna sin clasificar en el contrato medido/modelo/supuesto: {columna!r}")
 
 
 def es_supuesta(columna):
     """True si la columna depende del signo supuesto; ValueError si no está clasificada (grita)."""
-    if columna in SUPUESTAS:
-        return True
-    if columna in MEDIDAS:
-        return False
-    raise ValueError(f"Columna sin clasificar en el contrato medido/supuesto: {columna!r}")
+    return clase(columna) == "supuesto"
+
+
+def _brutos(c, por):
+    """|gex_contrib| por tipo (sin signo) agrupado por `por`: gex_bruto_c, gex_bruto_p."""
+    b = c["gex_contrib"].abs()
+    return pd.DataFrame({"gex_bruto_c": b.where(c["tipo"] == "C", 0.0),
+                         "gex_bruto_p": b.where(c["tipo"] == "P", 0.0)}).groupby(por).sum()
+
+
+def _desbalance(z):
+    z["gex_bruto"] = z["gex_bruto_c"] + z["gex_bruto_p"]
+    z["desbalance_pct"] = ((z["gex_bruto_c"] - z["gex_bruto_p"]).abs() / z["gex_bruto"] * 100).where(z["gex_bruto"] > 0)
+    return z
 
 
 def _preparar(cadena, banda):
@@ -67,33 +90,37 @@ def descomponer(ayer, hoy, banda=BANDA):
 
 
 def zonas_dia(cadena, banda=BANDA):
-    """Por zona: oi_c, oi_p (contratos), gex ($) y pct_puts (% del OI que es put)."""
+    """Por zona: oi_c, oi_p (contratos), gex ($), pct_puts (% del OI que es put) y, sin signo,
+    gex_bruto_c, gex_bruto_p, gex_bruto ($) y desbalance_pct."""
     c = _preparar(cadena, banda)
     z = c.pivot_table(index="zona", columns="tipo", values="open_interest", aggfunc="sum", fill_value=0).astype(float)
     z = z.reindex(columns=["C", "P"], fill_value=0.0).rename(columns={"C": "oi_c", "P": "oi_p"})
     z["gex"] = c.groupby("zona")["gex_contrib"].sum()
     total = z["oi_c"] + z["oi_p"]
     z["pct_puts"] = (z["oi_p"] / total * 100).where(total > 0)
-    return z
+    return _desbalance(z.join(_brutos(c, c["zona"])))
 
 
 def zonas_por_tramo(cadena, banda=BANDA):
     """Como zonas_dia, pero partido por raíz y tramo de plazo (simbolos.TRAMOS_PLAZO).
-    Una fila por (zona, raiz, tramo) con oi_c, oi_p y gex. Para filtrar el perfil de un día."""
+    Una fila por (zona, raiz, tramo) con oi_c, oi_p, gex, gex_bruto_c y gex_bruto_p. Para filtrar el perfil de un día."""
     c = _preparar(cadena, banda)
     bordes, nombres = TRAMOS_PLAZO
     c["tramo"] = pd.cut(c["dte"], bordes, labels=nombres).astype(str)
     c["oi_c"] = c["open_interest"].where(c["tipo"] == "C", 0.0)
     c["oi_p"] = c["open_interest"].where(c["tipo"] == "P", 0.0)
+    c["gex_bruto_c"] = c["gex_contrib"].abs().where(c["tipo"] == "C", 0.0)
+    c["gex_bruto_p"] = c["gex_contrib"].abs().where(c["tipo"] == "P", 0.0)
     return (c.groupby(["zona", "raiz", "tramo"], as_index=False)
-            .agg(oi_c=("oi_c", "sum"), oi_p=("oi_p", "sum"), gex=("gex_contrib", "sum")))
+            .agg(oi_c=("oi_c", "sum"), oi_p=("oi_p", "sum"), gex=("gex_contrib", "sum"),
+                 gex_bruto_c=("gex_bruto_c", "sum"), gex_bruto_p=("gex_bruto_p", "sum")))
 
 
 def evolucion(cadenas, banda=BANDA):
     """cadenas: {fecha: cadena de construir_cadena (con columna S)}, en orden de fecha.
     Devuelve (dias, zonas):
       dias:  por fecha, S, gex y la descomposición del cambio contra la fecha anterior (pos, mer, ven)
-      zonas: por fecha y zona, oi_c, oi_p, pct_puts, gex, y contra la fecha anterior doi_c, doi_p,
+      zonas: por fecha y zona, oi_c, oi_p, pct_puts, gex, gex_bruto, desbalance_pct, y contra la fecha anterior doi_c, doi_p,
              oi_venc, pos, mer, ven (nan el primer día)."""
     fechas = sorted(cadenas)
     filas_dia, filas_zona = [], []
@@ -114,7 +141,7 @@ def evolucion(cadenas, banda=BANDA):
     dias = pd.DataFrame(filas_dia).set_index("fecha")
     dias.insert(1, "dS", dias["S"].diff())
     zonas = pd.concat(filas_zona, ignore_index=True).reindex(
-        columns=["fecha", "zona", "oi_c", "oi_p", "pct_puts", "gex"] + CAMBIOS)
+        columns=["fecha", "zona", "oi_c", "oi_p", "pct_puts", "gex", "gex_bruto", "desbalance_pct"] + CAMBIOS)
     zonas[["oi_c", "oi_p"]] = zonas[["oi_c", "oi_p"]].fillna(0.0)       # zona que solo tenía vencidas
     no_primero = zonas["fecha"] != fechas[0]                            # el primer día no tiene contra qué
     zonas.loc[no_primero, CAMBIOS] = zonas.loc[no_primero, CAMBIOS].fillna(0.0)
