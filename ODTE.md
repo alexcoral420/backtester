@@ -90,7 +90,7 @@ indeterminado y ~30% se imprime fuera del bid/ask (paquetes).
 |---|---|---|---|
 | R1 ✅ M1 | `clasificar_trades` tenía `estricto=False` (regla histórica) por defecto | `clasificacion.py` | Un script nuevo que olvide el flag usa la regla vieja sin avisar. Hoy `ver_flujo` y `ver_sesgo` lo omiten a propósito, para comparar. |
 | R2 ✅ M3 | Horas fijas: vencimiento 16:00 y ES 09:30–15:59 | `catalogo.py`, `precio.py` | En días de cierre temprano (13:00: 2026-11-27, 2026-12-24) el vencimiento queda mal y la base sale de una barra sin actividad, sin que se note. |
-| R3 | La caché del `tcbbo` depende de la lista exacta de símbolos | `trades.py` | Pedir el mismo día con un rango de strikes un poco distinto vuelve a pagar datos que se solapan. |
+| R3 ⚠️ | La caché del `tcbbo` depende de la lista exacta de símbolos | `trades.py` | Pedir el mismo día con un rango de strikes un poco distinto vuelve a pagar datos que se solapan. **Pasó el 2026-11-04:** `signo_walls` con más archivos procesados elige otras series y sus 26 días quedan sin caché. |
 | R4 ✅ M1 | El signo medido por strike se calculaba dentro de los scripts, solo con `MIN_ABS` | `ver_strikes_0dte`, `antes_despues_0dte` | Ignora `MIN_REL` y el % indeterminado: un "dealer −" puede apoyarse en el 10% del volumen. Choca con el contrato medido/supuesto. |
 | R5 ✅ M3 | Cada descarga pedía su propia confirmación, con mensajes por stdout | `catalogo.py`, `precio.py`, `trades.py` | Un rango de N días pediría ~3N confirmaciones (CLAUDE.md lo prohíbe) y ensucia el stdout de los scripts. |
 
@@ -131,14 +131,17 @@ honesto la muestra mediría el 10% del volumen como si fuera todo.
 **Verificación ($0, desde caché):** stdout antes/después de 8 scripts (`b2_flujo`, `signo_walls`,
 `medir_niveles`, `ver_strikes`, `antes_despues`, `caracterizar_strike`, `ver_zoom`, `ver_flujo`). Todos los
 números idénticos; la única diferencia son las líneas `[caché] ...`, que pasaron de stdout a stderr.
-`signo_walls` se comparó hasta el paso de costo: `data/procesado` ya llega al 11-03 y le faltan 4 días de flujo
-(10-28..11-02) de tcbbo, que ahora pide con una confirmación.
+`signo_walls` se comparó hasta el paso de costo (sin clave real no se puede cotizar).
+
+**R3 se volvió urgente:** con `data/procesado` hasta el 11-03, `signo_walls` elige 653 series en vez de 512, así que
+la huella md5 de cada día cambia y **los 26 días de flujo quedan sin caché**, incluidos los 17 ya pagados (~$6,26).
+Correrlo sin `--solo-costo` volvería a cobrar todo. Verificado espiando `asegurar_tcbbo` (0 de 26 en caché).
 
 **Cambios de comportamiento a saber:**
 - `signo_walls --solo-costo` ya no lista el costo por día, solo el total.
 - La tabla de cierres tempranos se escribió a mano: conviene confirmarla contra el calendario oficial de
   NYSE/Cboe, y agregar 2027 antes de usar fechas de ese año.
-- R3 (caché atada a la lista exacta de símbolos) sigue abierto.
+- R3 (caché atada a la lista exacta de símbolos) sigue abierto y ahora es el riesgo más caro (ver arriba).
 
 **Propuesta original:**
 - `asegurar_odte(fechas, ...)`: suma el costo de catálogo + ES + `tcbbo` de todos los días que falten y pide **una**
