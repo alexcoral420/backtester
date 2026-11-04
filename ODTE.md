@@ -109,7 +109,7 @@ honesto la muestra mediría el 10% del volumen como si fuera todo.
 | Id | Mejora | Resuelve | Estado |
 |---|---|---|---|
 | M3 | Descargas 0DTE con el patrón de `datos.py` | R5, R2 (R3 no) | **hecha** (2026-11-04) |
-| M1 | Veredicto del signo medido en `src`, con el % indeterminado al lado | R4, R1 | **hecha** (2026-11-04) |
+| M1 | Veredicto del signo medido en `src`, con el % indeterminado al lado | R4, R1 | **cerrada** (2026-11-04): peor caso se mantiene |
 | M2 | De días sueltos a una muestra validada | evidencia anecdótica | **en curso**: código hecho, 6 días medidos, 0 toques con signo |
 
 ### M3: descargas alineadas con `datos.py` — HECHA
@@ -186,9 +186,20 @@ indeterminado), tampoco pasa: lo indeterminado del strike (al menos 13,6k contra
 "+"/"−" y los "confirma/CONTRADICE" que se leyeron antes en estos días descansaban en el volumen
 firmado, que era menos que el no firmado.
 
-**Pendiente de decidir:** si el peor caso es el criterio que queremos o es demasiado exigente (por
-ejemplo, exigir que el neto supere una fracción del volumen sin firmar en vez de todo). Cualquier
-cambio va en `veredicto.py`, con sus tests.
+**Criterio del signo: CERRADO, el peor caso se mantiene** (2026-11-04). Quedaba abierto si era demasiado
+exigente y convenía pedir que el neto superara solo una FRACCIÓN del volumen sin firmar. No se relaja,
+porque el neto firmado es una fracción mínima de lo indeterminado. Razón `|neto| / indeterminado` por strike,
+día completo, en las mismas corridas de M1:
+| Día (strikes) | mediana | máximo | > 100% | > 50% | > 25% | > 10% | > 5% |
+|---|---|---|---|---|---|---|---|
+| 10-12 (25) | 0,080 | 0,18 | 0 | 0 | 0 | 8 | 15 |
+| 10-14 (25) | 0,039 | 0,56 | 0 | 1 | 1 | 1 | 6 |
+
+Para obtener signos en una parte relevante de los strikes habría que bajar el umbral al 5–10% del
+indeterminado. Eso no sería un criterio sino elegir la respuesta. La muestra de M2 da lo mismo antes
+del toque (mediana 0,035, máximo 0,40). Conclusión: **con la regla de cotización, el agresor no es
+identificable en el intradía 0DTE**; el veredicto "indet. domina" es la respuesta correcta, no un
+exceso de exigencia. `veredicto.py` no cambia.
 
 **Propuesta original:**
 - Una función (en `src/odte` o reutilizando `src/signo_medido`) que devuelva el signo del dealer junto con la
@@ -296,3 +307,4 @@ Mientras el criterio del signo no cambie, ampliar la muestra solo va a confirmar
 | 2026-11-04 | M3: `asegurar_descargas` (datos), `asegurar_tcbbo`, `asegurar_odte`, `calendario`; 3 scripts sin descarga copiada; mensajes a stderr | (este commit) | 206 tests (13 nuevos); stdout idéntico en 8 scripts salvo `[caché]`; rango 0DTE = como mucho 2 confirmaciones (antes ~3 por día) |
 | 2026-11-04 | R3: caché tcbbo por símbolo (`plan_tcbbo`, `leer_tcbbo`, `.json` de pedidos); 4 scripts leen con `leer_tcbbo` | (este commit) | 216 tests (10 nuevos); stdout idéntico en 7 scripts; `signo_walls` pasa de 100% a 50% día-serie sin caché |
 | 2026-11-04 | M2: `toques.py` (definición del toque y del resultado, flujo previo), `validar_0dte` (rango, 2 confirmaciones, tcbbo solo de strikes tocados), `analizar_odte`; definiciones y alternativas en la sección M2 | (este commit) | 18 tests nuevos; 1ª corrida $0: 16 toques en 6 días, 8 aguantó / 8 cruzó, **0 con signo medido** (13 indet. domina, 3 sin evidencia) |
+| 2026-11-04 | Cierre de M1: el criterio del peor caso se mantiene (pendiente resuelto con la razón \|neto\|/indet) | (este commit) | 10-12: mediana 0,080, máx 0,18; 10-14: mediana 0,039, máx 0,56; 0 de 50 strikes > 100%, 1 > 50% |

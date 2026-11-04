@@ -15,6 +15,10 @@ Sin trades -> "sin flujo". El % indeterminado se devuelve SIEMPRE, al lado del s
 No hay mínimo relativo (MIN_REL de signo_medido): en el intradía 0DTE no hay un ΔOI contra el
 cual medir. La prueba 2 cumple ese papel contra el volumen que no se pudo firmar.
 
+El peor caso es DELIBERADO (cierre de M1, ODTE.md): |neto| / indeterminado tiene mediana 0,04-0,08 por
+strike. Relajarlo a una fracción del indeterminado solo daría signos con umbrales del 5-10%, que ya no
+son un criterio. No relajar sin volver a medir esa razón.
+
 Signo del dealer: lo da la tabla de dealer.py (el dealer hace lo contrario del público). Calls y
 puts del MISMO strike y vencimiento tienen la misma gamma, por eso sus contratos se pueden sumar.
 """
