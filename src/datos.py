@@ -55,11 +55,11 @@ def asegurar_descargas(pedidos, descripcion, solo_costo=False) -> float:
                       f"costo estimado TOTAL ${costo:.4f}. ¿Descargar todo? (s/n): "):
         raise SystemExit("Descarga cancelada.")
     for ruta, params, procesar in pendientes:
+        os.makedirs(os.path.dirname(ruta), exist_ok=True)   # antes de procesar: puede escribir al lado
         try:
             df = procesar(cliente.timeseries.get_range(**params).to_df())
         except Exception as e:
             raise RuntimeError(f"Falló la descarga de {ruta}: {e}")
-        os.makedirs(os.path.dirname(ruta), exist_ok=True)
         df.to_parquet(ruta)
         _log(f"[guardado] {ruta} ({len(df)} filas)")
     return costo

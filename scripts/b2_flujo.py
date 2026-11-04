@@ -25,7 +25,7 @@ from src.datos import CARPETA_CACHE, ruta_cadena
 from src.gex import HIPOTESIS_NULA_PUBLICO
 from src.inventario import delta_oi, fecha_flujo, oi_por_fecha
 from src.odte.clasificacion import clasificar_trades
-from src.odte.trades import asegurar_tcbbo, ruta_cache_tcbbo
+from src.odte.trades import asegurar_tcbbo, leer_tcbbo
 from src.signo_medido import veredicto
 
 DESDE, HASTA = "09:30", "16:15"
@@ -62,7 +62,7 @@ simbolos = sorted(nivel)
 # ---------------- descarga con UNA confirmación ----------------
 asegurar_tcbbo({d: simbolos for d in dias}, DESDE, HASTA)
 
-tr = pd.concat([pd.read_parquet(ruta_cache_tcbbo(d, simbolos, DESDE, HASTA)).assign(dia=d) for d in dias])
+tr = pd.concat([leer_tcbbo(d, simbolos, DESDE, HASTA).assign(dia=d) for d in dias])
 tr = clasificar_trades(tr, estricto=True)
 tr["estado"] = tr["signo"].map({1: "compra", -1: "venta", 0: "indet"})
 tr["size"] = tr["size"].astype("int64")

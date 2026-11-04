@@ -16,7 +16,7 @@ trabaja, qué riesgos tiene y qué mejoras se van aplicando. Se actualiza en cad
 |---|---|---|
 | `catalogo.py` | ¿Qué SPXW existían y cuáles eran 0DTE? | schema `definition` (~$0,03/día) |
 | `precio.py` | ¿Dónde estaba el SPX cada minuto? | ES 1-min (`ES.v.0`) − base de cierre (~$0,005/día) |
-| `trades.py` | ¿Qué se negoció? | `tcbbo`; caché por md5 de los símbolos + franja |
+| `trades.py` | ¿Qué se negoció? | `tcbbo`; caché POR SÍMBOLO (desde R3): `asegurar_tcbbo` / `leer_tcbbo` |
 | `clasificacion.py` | ¿Quién agredió? | regla del punto medio (histórica) vs estricta (bid/ask exacto) + flag `complejo` |
 | `flujo.py` | ¿Cómo se acumula? | neto del público por minuto, calls/puts separados, acumulados |
 | `dealer.py` | Tabla de signos del dealer | también la usa `src/gex.py` |
@@ -90,7 +90,7 @@ indeterminado y ~30% se imprime fuera del bid/ask (paquetes).
 |---|---|---|---|
 | R1 ✅ M1 | `clasificar_trades` tenía `estricto=False` (regla histórica) por defecto | `clasificacion.py` | Un script nuevo que olvide el flag usa la regla vieja sin avisar. Hoy `ver_flujo` y `ver_sesgo` lo omiten a propósito, para comparar. |
 | R2 ✅ M3 | Horas fijas: vencimiento 16:00 y ES 09:30–15:59 | `catalogo.py`, `precio.py` | En días de cierre temprano (13:00: 2026-11-27, 2026-12-24) el vencimiento queda mal y la base sale de una barra sin actividad, sin que se note. |
-| R3 ⚠️ | La caché del `tcbbo` depende de la lista exacta de símbolos | `trades.py` | Pedir el mismo día con un rango de strikes un poco distinto vuelve a pagar datos que se solapan. **Pasó el 2026-11-04:** `signo_walls` con más archivos procesados elige otras series y sus 26 días quedan sin caché. |
+| R3 ✅ | La caché del `tcbbo` dependía de la lista exacta de símbolos | `trades.py` | Pedir el mismo día con un rango de strikes un poco distinto vuelve a pagar datos que se solapan. **Pasó el 2026-11-04:** `signo_walls` con más archivos procesados elige otras series y sus 26 días quedan sin caché. |
 | R4 ✅ M1 | El signo medido por strike se calculaba dentro de los scripts, solo con `MIN_ABS` | `ver_strikes_0dte`, `antes_despues_0dte` | Ignora `MIN_REL` y el % indeterminado: un "dealer −" puede apoyarse en el 10% del volumen. Choca con el contrato medido/supuesto. |
 | R5 ✅ M3 | Cada descarga pedía su propia confirmación, con mensajes por stdout | `catalogo.py`, `precio.py`, `trades.py` | Un rango de N días pediría ~3N confirmaciones (CLAUDE.md lo prohíbe) y ensucia el stdout de los scripts. |
 
@@ -101,7 +101,7 @@ indeterminado y ~30% se imprime fuera del bid/ask (paquetes).
 Orden aplicado: **M1 → M3** (M1 se hizo primero por un malentendido; la recomendación era M3 → M1). No quedó
 inconsistente: M1 no descarga nada y M3 no toca el veredicto; el único cruce es que `corte_strike` recibe la
 sesión de `spx_1min`, que desde M3 termina en la última barra real del día (12:59 en un cierre temprano).
-Siguiente: **M2**. Orden recomendado original: **M3 → M1 → M2**. Sin la descarga de rango no se puede armar la muestra, y sin un veredicto
+Después de M3 se resolvió **R3** (caché por símbolo), porque M2 necesita rangos. Siguiente: **M2**. Orden recomendado original: **M3 → M1 → M2**. Sin la descarga de rango no se puede armar la muestra, y sin un veredicto
 honesto la muestra mediría el 10% del volumen como si fuera todo.
 
 | Id | Mejora | Resuelve | Estado |
@@ -141,7 +141,8 @@ Correrlo sin `--solo-costo` volvería a cobrar todo. Verificado espiando `asegur
 - `signo_walls --solo-costo` ya no lista el costo por día, solo el total.
 - La tabla de cierres tempranos se escribió a mano: conviene confirmarla contra el calendario oficial de
   NYSE/Cboe, y agregar 2027 antes de usar fechas de ese año.
-- R3 (caché atada a la lista exacta de símbolos) sigue abierto y ahora es el riesgo más caro (ver arriba).
+- R3 (caché atada a la lista exacta de símbolos) quedaba abierto y era el riesgo más caro: resuelto después,
+  ver **R3: caché por símbolo**.
 
 **Propuesta original:**
 - `asegurar_odte(fechas, ...)`: suma el costo de catálogo + ES + `tcbbo` de todos los días que falten y pide **una**
@@ -193,6 +194,33 @@ cambio va en `veredicto.py`, con sus tests.
 - Llevar `corte_strike` (primer cruce / máxima aproximación) a `src`, con tests.
 - Revisar R1: hacer explícita la regla en cada llamada o cambiar el valor por defecto de forma deliberada.
 
+### R3: caché por símbolo — HECHA
+
+**Qué se hizo** (`src/odte/trades.py`):
+- Un símbolo está cubierto para (día, franja) si aparece en algún archivo de ese día cuya franja contiene la
+  pedida. `asegurar_tcbbo` solo cotiza y descarga los no cubiertos, en un archivo nuevo.
+- Cada archivo nuevo lleva un `.json` con los símbolos PEDIDOS: un símbolo sin trades queda cubierto.
+- Archivos viejos (sin `.json`): cubren los símbolos que aparecen en ellos, y todos los de su pedido original
+  si se pide exactamente la misma lista (md5). Un símbolo sin trades de un archivo viejo, dentro de otra lista,
+  se vuelve a pedir (no tiene datos: cuesta ~$0).
+- `leer_tcbbo(fecha, símbolos, desde, hasta)` lee SOLO de caché: cada símbolo de UN archivo (sin duplicados),
+  recortado a la franja y ordenado por tiempo; si falta algo, grita. `plan_tcbbo` dice de dónde sale cada uno.
+- `b2_flujo`, `signo_walls`, `medir_niveles` y `ver_zoom_0dte` leen con `leer_tcbbo` (ya no con la ruta exacta).
+- Corregido de paso: `asegurar_descargas` crea la carpeta antes de `procesar` (el `.json` fallaba sin ella).
+
+**Verificación ($0):** stdout idéntico en 7 scripts (la única diferencia: `ver_zoom` ya no imprime `[caché]`).
+Cero descargas y cero cotizaciones. 10 tests nuevos con archivos "viejos" y un cliente falso.
+
+**Efecto en `signo_walls`** (data/procesado hasta 11-03, 26 días de flujo, 653 series):
+| | día-serie | sin caché |
+|---|---|---|
+| Antes de R3 | 11.381 | 11.381 (100%) |
+| Después de R3 | 11.381 | 5.672 (50%) |
+
+De lo que falta: 2.647 son los 9 días nuevos (10-21..11-02), nunca descargados. Unos 3.000 son de los días
+viejos: series que la nueva selección agrega más símbolos sin trades de los archivos viejos (no se pueden
+distinguir; estos cuestan ~$0). El costo real se ve con `python scripts/signo_walls.py --solo-costo`.
+
 ### M2: muestra validada
 - Un script de rango (`validar_0dte`) que mida algo fijo por día, por ejemplo el flujo estricto antes de tocar el
   nivel frente a si el nivel aguantó o se cruzó.
@@ -209,3 +237,4 @@ cambio va en `veredicto.py`, con sus tests.
 | 2026-11-04 | Revisión inicial y creación de este archivo. Antes: `spxw-raices` fusionada a `main` (fast-forward a `48d7433`); el trabajo 0DTE sigue en la rama `odte-mejoras` | `2ca92b5` | 345 líneas en `src/odte`, 13 scripts, 6 tests; riesgos R1–R5; mejoras M1–M3 pendientes |
 | 2026-11-04 | M1: `veredicto.py` y `cruce.py` en `src/odte`; `estricto` obligatorio; `ver_strikes` y `antes_despues` con `%indet` | (este commit) | 193 tests (27 nuevos); netos idénticos; con el peor caso, 0 strikes con signo en 10-12 y 10-14 (antes 23 y 23) |
 | 2026-11-04 | M3: `asegurar_descargas` (datos), `asegurar_tcbbo`, `asegurar_odte`, `calendario`; 3 scripts sin descarga copiada; mensajes a stderr | (este commit) | 206 tests (13 nuevos); stdout idéntico en 8 scripts salvo `[caché]`; rango 0DTE = como mucho 2 confirmaciones (antes ~3 por día) |
+| 2026-11-04 | R3: caché tcbbo por símbolo (`plan_tcbbo`, `leer_tcbbo`, `.json` de pedidos); 4 scripts leen con `leer_tcbbo` | (este commit) | 216 tests (10 nuevos); stdout idéntico en 7 scripts; `signo_walls` pasa de 100% a 50% día-serie sin caché |

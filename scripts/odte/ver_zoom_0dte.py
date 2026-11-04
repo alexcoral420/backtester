@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from src.odte.constantes import ZONA_NY
 from src.odte.catalogo import seleccionar_0dte
 from src.odte.precio import spx_1min
-from src.odte.trades import ruta_cache_tcbbo
+from src.odte.trades import leer_tcbbo
 from src.odte.clasificacion import clasificar_trades
 from src.odte.flujo import flujo_por_minuto
 
@@ -30,14 +30,12 @@ z_desde, z_hasta = sys.argv[4], sys.argv[5]
 c_desde = sys.argv[6] if len(sys.argv) > 6 else "09:30"
 c_hasta = sys.argv[7] if len(sys.argv) > 7 else "16:00"
 
-# --- Leer SOLO de caché: si el archivo no existe, abortar (nunca descargar desde aquí) ---
+# --- Leer SOLO de caché: si falta algo, abortar (nunca descargar desde aquí) ---
 sel = seleccionar_0dte(fecha, kmin, kmax)
-ruta = ruta_cache_tcbbo(fecha, sel["raw_symbol"].tolist(), c_desde, c_hasta)
-if not os.path.exists(ruta):
-    raise SystemExit(f"No existe en caché: {ruta}\n"
-                     "Revisa KMIN/KMAX y la franja de la descarga. Este script no descarga nada.")
-print(f"[caché] leyendo {ruta}")
-trades = pd.read_parquet(ruta)
+try:
+    trades = leer_tcbbo(fecha, sel["raw_symbol"].tolist(), c_desde, c_hasta)
+except RuntimeError as e:
+    raise SystemExit(f"{e}\nRevisa KMIN/KMAX y la franja. Este script no descarga nada.")
 trades = trades.reset_index().merge(
     sel[["raw_symbol", "instrument_class", "strike_price"]],
     left_on="symbol", right_on="raw_symbol", how="left",

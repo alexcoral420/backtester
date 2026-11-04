@@ -28,7 +28,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.datos import precio_spx
 from src.gex import construir_cadena, niveles_gamma
 from src.odte.clasificacion import clasificar_trades
-from src.odte.trades import asegurar_tcbbo, ruta_cache_tcbbo
+from src.odte.trades import asegurar_tcbbo, leer_tcbbo
 from src.signo_medido import MIN_ABS
 
 DESDE, HASTA, BANDA, CUBRIR = "09:30", "16:15", 25, 0.80
@@ -54,9 +54,8 @@ print(f"{fecha} | SPX {S:.2f} | {len(niv)} zonas | {len(simbolos)} series (80% d
 
 # ---------------- costo y descarga con UNA confirmación ----------------
 asegurar_tcbbo({fecha: simbolos}, DESDE, HASTA)
-ruta = ruta_cache_tcbbo(fecha, simbolos, DESDE, HASTA)
 
-tr = clasificar_trades(pd.read_parquet(ruta), estricto=True)
+tr = clasificar_trades(leer_tcbbo(fecha, simbolos, DESDE, HASTA), estricto=True)
 tr["size"] = tr["size"].astype("int64")
 
 # ---------------- por serie: neto medido y la gamma que tomó el dealer ----------------
