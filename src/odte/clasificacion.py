@@ -5,8 +5,11 @@ Regla del punto medio (histórica) y regla estricta (vigente).
 import pandas as pd
 
 
-def clasificar_trades(trades: pd.DataFrame, estricto: bool = False) -> pd.DataFrame:
+def clasificar_trades(trades: pd.DataFrame, *, estricto: bool) -> pd.DataFrame:
     """
+    `estricto` es OBLIGATORIO y por nombre: antes valía False por defecto (la regla histórica), y un
+    script que lo olvidaba usaba la regla vieja sin avisar.
+
     estricto=False (regla del punto medio):
       precio > medio -> +1 (el público COMPRA, dealer queda short esa opción)
       precio < medio -> -1 (el público VENDE, dealer queda long)

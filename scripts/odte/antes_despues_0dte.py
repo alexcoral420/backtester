@@ -5,7 +5,9 @@ Uso:  python scripts/odte/antes_despues_0dte.py 2026-10-14 7675 7795 14:01
 Flujo ESTRICTO 0DTE por strike cortado a una HORA (todo desde caché, $0).
 KMIN KMAX = los MISMOS de la descarga original (la caché se identifica por la lista de símbolos).
 Por strike: calls/puts netos ANTES y DESDE la hora, neto total y signo del dealer medido en cada tramo
-(público vende -> dealer + | compra -> dealer - | |neto| < MIN_ABS -> sin evidencia).
+(público vende -> dealer + | compra -> dealer -), con el veredicto de src/odte/veredicto.py:
+|neto| < MIN_ABS -> "sin evidencia"; lo indeterminado alcanza para invertirlo -> "indet. domina".
+Cada signo lleva su % indeterminado al lado.
 Además: el neto ACUMULADO hasta cada media hora de los strikes pedidos.
 Solo números.
 """
@@ -19,7 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from src.odte.catalogo import seleccionar_0dte
 from src.odte.clasificacion import clasificar_trades
 from src.odte.trades import descargar_tcbbo_0dte
-from src.signo_medido import MIN_ABS
+from src.odte.veredicto import pct_indet, signo_dealer, volumenes
 
 if len(sys.argv) < 5:
     raise SystemExit("Uso: python scripts/odte/antes_despues_0dte.py FECHA KMIN KMAX HH:MM [K1 K2]")
@@ -36,28 +38,31 @@ ts = "ts_recv" if "ts_recv" in tr.columns else tr.columns[0]
 corte = pd.Timestamp(f"{fecha} {hora}", tz=tr[ts].dt.tz)
 tr["tramo"] = (tr[ts] < corte).map({True: "antes", False: "desde"})
 tr["neto"] = tr["signo"].astype("int64") * tr["size"].astype("int64")
-tr["indet"] = (tr["signo"] == 0) * tr["size"].astype("int64")
 
 
-def dealer(x):
-    return "sin evidencia" if abs(x) < MIN_ABS else ("-" if x > 0 else "+")
+def veredictos(v):
+    """Signo del dealer y % indeterminado de cada fila de un cuadro compra/venta/indet."""
+    pct = [pct_indet(*x) for x in v.itertuples(index=False)]
+    return ([signo_dealer(*x) for x in v.itertuples(index=False)],
+            [None if q != q else round(q) for q in pct])
 
 
 p = tr.pivot_table(index="strike_price", columns=["tramo", "instrument_class"], values="neto",
                    aggfunc="sum", fill_value=0)
+vol = volumenes(tr, ["strike_price", "tramo"])
 r = pd.DataFrame(index=p.index.astype(int))
 for tramo in ["antes", "desde"]:
     c = p.get((tramo, "C"), pd.Series(0, index=p.index)).values
     pp = p.get((tramo, "P"), pd.Series(0, index=p.index)).values
     r[f"{tramo}_calls"], r[f"{tramo}_puts"], r[f"{tramo}_total"] = c, pp, c + pp
-    r[f"dealer_{tramo}"] = [dealer(x) for x in c + pp]
+    vt = (vol.xs(tramo, level="tramo") if tramo in vol.index.get_level_values("tramo")
+          else vol.iloc[0:0]).reindex(p.index, fill_value=0)
+    r[f"dealer_{tramo}"], r[f"%indet_{tramo}"] = veredictos(vt)
 r["dia_total"] = r["antes_total"] + r["desde_total"]
-r["dealer_dia"] = [dealer(x) for x in r["dia_total"]]
-v = tr.groupby(["strike_price", "tramo"])[["size", "indet"]].sum()
-for tramo in ["antes", "desde"]:
-    x = v.xs(tramo, level="tramo") if tramo in v.index.get_level_values(1) else None
-    r[f"%indet_{tramo}"] = ((x["indet"] / x["size"] * 100).round(0).reindex(p.index).values
-                            if x is not None else None)
+r["dealer_dia"], r["%indet_dia"] = veredictos(vol.groupby(level="strike_price").sum().reindex(p.index, fill_value=0))
+r = r[["antes_calls", "antes_puts", "antes_total", "dealer_antes", "%indet_antes",
+       "desde_calls", "desde_puts", "desde_total", "dealer_desde", "%indet_desde",
+       "dia_total", "dealer_dia", "%indet_dia"]]
 
 pd.set_option("display.width", 220)
 print(f"\n=== {fecha} | strikes {int(k1)}-{int(k2)} | corte {hora} NY | flujo ESTRICTO del público ===")

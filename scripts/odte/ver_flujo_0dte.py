@@ -33,7 +33,7 @@ trades = trades.reset_index().merge(
 spx, _ = spx_1min(fecha)
 
 # --- Clasificar y agrupar ---
-flujo = flujo_por_minuto(clasificar_trades(trades))
+flujo = flujo_por_minuto(clasificar_trades(trades, estricto=False))
 flujo = flujo.join(spx["spx"], how="left")   # mismo índice: minuto en NY
 
 # Regla estricta (solo agresores limpios en bid/ask), para comparar

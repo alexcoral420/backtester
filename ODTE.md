@@ -20,6 +20,8 @@ trabaja, qué riesgos tiene y qué mejoras se van aplicando. Se actualiza en cad
 | `clasificacion.py` | ¿Quién agredió? | regla del punto medio (histórica) vs estricta (bid/ask exacto) + flag `complejo` |
 | `flujo.py` | ¿Cómo se acumula? | neto del público por minuto, calls/puts separados, acumulados |
 | `dealer.py` | Tabla de signos del dealer | también la usa `src/gex.py` |
+| `veredicto.py` | ¿Qué signo del dealer sostiene el flujo medido, y con cuánto respaldo? | M1; usa `MIN_ABS` de `signo_medido` |
+| `cruce.py` | ¿Cuándo llegó el precio al strike? (primer cruce / máxima aproximación) | M1 |
 | `constantes.py` | Dataset, raíz, caché, zona NY | |
 
 ### `scripts/odte/` (13 scripts, ~1.000 líneas), todos de UN día
@@ -33,15 +35,16 @@ trabaja, qué riesgos tiene y qué mejoras se van aplicando. Se actualiza en cad
 
 ### Tests
 
-`test_catalogo`, `test_clasificacion`, `test_dealer`, `test_flujo`, `test_trades`, `test_precio_spx`. Cubren:
+`test_catalogo`, `test_clasificacion`, `test_dealer`, `test_flujo`, `test_trades`, `test_precio_spx`,
+`test_veredicto`, `test_cruce` (estos dos desde M1). Cubren:
 - el bug de `expiration` (medianoche UTC = día anterior en NY);
 - las fronteras bid/ask de ambas reglas;
 - el desborde de `size` uint32 con flujo negativo;
 - la estabilidad de la ruta de caché (si se rompe, se vuelve a pagar);
 - la única fuente del cierre del SPX.
 
-**Sin tests:** `precio.spx_1min` (cálculo de la base) y la lógica de corte "primer cruce / máxima
-aproximación", que hoy vive solo en `scripts/odte/ver_strikes_0dte.py`.
+**Sin tests:** `precio.spx_1min` (cálculo de la base). La lógica de corte "primer cruce / máxima
+aproximación" tiene tests desde M1 (`src/odte/cruce.py`).
 
 ---
 
@@ -83,10 +86,10 @@ indeterminado y ~30% se imprime fuera del bid/ask (paquetes).
 
 | # | Riesgo | Dónde | Efecto |
 |---|---|---|---|
-| R1 | `clasificar_trades` tiene `estricto=False` (regla histórica) por defecto | `clasificacion.py` | Un script nuevo que olvide el flag usa la regla vieja sin avisar. Hoy `ver_flujo` y `ver_sesgo` lo omiten a propósito, para comparar. |
+| R1 ✅ M1 | `clasificar_trades` tenía `estricto=False` (regla histórica) por defecto | `clasificacion.py` | Un script nuevo que olvide el flag usa la regla vieja sin avisar. Hoy `ver_flujo` y `ver_sesgo` lo omiten a propósito, para comparar. |
 | R2 | Horas fijas: vencimiento 16:00 y ES 09:30–15:59 | `catalogo.py`, `precio.py` | En días de cierre temprano (13:00: 2026-11-27, 2026-12-24) el vencimiento queda mal y la base sale de una barra sin actividad, sin que se note. |
 | R3 | La caché del `tcbbo` depende de la lista exacta de símbolos | `trades.py` | Pedir el mismo día con un rango de strikes un poco distinto vuelve a pagar datos que se solapan. |
-| R4 | El signo medido por strike se calcula dentro de los scripts, solo con `MIN_ABS` | `ver_strikes_0dte`, `antes_despues_0dte` | Ignora `MIN_REL` y el % indeterminado: un "dealer −" puede apoyarse en el 10% del volumen. Choca con el contrato medido/supuesto. |
+| R4 ✅ M1 | El signo medido por strike se calculaba dentro de los scripts, solo con `MIN_ABS` | `ver_strikes_0dte`, `antes_despues_0dte` | Ignora `MIN_REL` y el % indeterminado: un "dealer −" puede apoyarse en el 10% del volumen. Choca con el contrato medido/supuesto. |
 | R5 | Cada descarga pide su propia confirmación, con mensajes por stdout | `catalogo.py`, `precio.py`, `trades.py` | Un rango de N días pediría ~3N confirmaciones (CLAUDE.md lo prohíbe) y ensucia el stdout de los scripts. |
 
 ---
@@ -99,7 +102,7 @@ honesto la muestra mediría el 10% del volumen como si fuera todo.
 | Id | Mejora | Resuelve | Estado |
 |---|---|---|---|
 | M3 | Descargas 0DTE con el patrón de `datos.py` | R5, R2, R3 (parcial) | pendiente |
-| M1 | Veredicto del signo medido en `src`, con el % indeterminado al lado | R4, R1 | pendiente |
+| M1 | Veredicto del signo medido en `src`, con el % indeterminado al lado | R4, R1 | **hecha** (2026-11-04) |
 | M2 | De días sueltos a una muestra validada | evidencia anecdótica | pendiente |
 
 ### M3: descargas alineadas con `datos.py`
@@ -109,7 +112,44 @@ honesto la muestra mediría el 10% del volumen como si fuera todo.
 - `_parametros_tcbbo` pasa a ser pública, porque la usa medio proyecto.
 - Hora de cierre real de cada día en lugar de 16:00 fijo (R2).
 
-### M1: veredicto honesto en `src`
+### M1: veredicto honesto en `src` — HECHA
+
+**Qué se hizo:**
+- `src/odte/veredicto.py`: `signo_dealer(compra, venta, indet)`, `vs_nula(..., accion_supuesta)`,
+  `pct_indet(...)` y `volumenes(clasificados, por)`. Un signo solo si pasa dos pruebas:
+  1) `|neto| >= MIN_ABS` (200), si no "sin evidencia";
+  2) `|neto| > indeterminado` (peor caso: aunque todo lo indeterminado hubiera ido en contra, el signo
+     no cambia), si no "indet. domina". Sin trades: "sin flujo".
+  Sin `MIN_REL`: en el intradía 0DTE no hay ΔOI contra el cual medir; la prueba 2 cumple ese papel.
+- El signo del dealer sale de `dealer.posicion_dealer` y la hipótesis nula de `gex.HIPOTESIS_NULA_PUBLICO`
+  (antes los scripts los escribían a mano).
+- `src/odte/cruce.py`: `corte_strike(dia, strike)`, movido desde `ver_strikes_0dte`, sin cambio de lógica.
+- `clasificar_trades(trades, *, estricto)`: la regla es obligatoria y por nombre (R1). `ver_flujo` y
+  `ver_sesgo` ahora pasan `estricto=False` de forma explícita.
+- `ver_strikes_0dte` y `antes_despues_0dte` usan el veredicto y muestran `%indet` al lado de cada signo.
+
+**Verificación ($0, desde caché):** antes/después de `ver_strikes_0dte` (10-12 y 10-14) y
+`antes_despues_0dte` (10-14, corte 14:01). Los netos, cortes y comportamientos son idénticos; solo cambian
+las columnas de veredicto.
+
+**Resultado:** con la prueba del peor caso **ningún strike conserva un signo** en las tres corridas.
+| Corrida | Antes (solo MIN_ABS) | Después |
+|---|---|---|
+| `ver_strikes` 10-12, día completo | + 20, − 3, sin evid. 2 | indet. domina 23, sin evid. 2 |
+| `ver_strikes` 10-14, día completo | + 15, − 8, sin evid. 2 | indet. domina 23, sin evid. 2 |
+| `ver_strikes` 10-14, calls / puts vs nula | confirma 15 / 7, CONTRADICE 5 / 14 | 0 confirma, 0 CONTRADICE |
+| `antes_despues` 10-14 (75 celdas) | 44 +, 24 −, sin evid. 7 | 0 + / −; 68 indet. domina, 7 sin evid. |
+
+El % indeterminado por strike va de 26% a 70%. El caso más fuerte, 7790 C del 14-oct (neto −13.561, 35%
+indeterminado), tampoco pasa: lo indeterminado del strike (al menos 13,6k contratos) alcanza para anularlo. Los signos
+"+"/"−" y los "confirma/CONTRADICE" que se leyeron antes en estos días descansaban en el volumen
+firmado, que era menos que el no firmado.
+
+**Pendiente de decidir:** si el peor caso es el criterio que queremos o es demasiado exigente (por
+ejemplo, exigir que el neto supere una fracción del volumen sin firmar en vez de todo). Cualquier
+cambio va en `veredicto.py`, con sus tests.
+
+**Propuesta original:**
 - Una función (en `src/odte` o reutilizando `src/signo_medido`) que devuelva el signo del dealer junto con la
   fracción de volumen que lo respalda, y que diga "sin evidencia" cuando el indeterminado domina.
 - Llevar `corte_strike` (primer cruce / máxima aproximación) a `src`, con tests.
@@ -128,4 +168,5 @@ honesto la muestra mediría el 10% del volumen como si fuera todo.
 
 | Fecha | Cambio | Commit | Resultado / números |
 |---|---|---|---|
-| 2026-11-04 | Revisión inicial y creación de este archivo | — | 345 líneas en `src/odte`, 13 scripts, 6 tests; riesgos R1–R5; mejoras M1–M3 pendientes |
+| 2026-11-04 | Revisión inicial y creación de este archivo. Antes: `spxw-raices` fusionada a `main` (fast-forward a `48d7433`); el trabajo 0DTE sigue en la rama `odte-mejoras` | `2ca92b5` | 345 líneas en `src/odte`, 13 scripts, 6 tests; riesgos R1–R5; mejoras M1–M3 pendientes |
+| 2026-11-04 | M1: `veredicto.py` y `cruce.py` en `src/odte`; `estricto` obligatorio; `ver_strikes` y `antes_despues` con `%indet` | (este commit) | 193 tests (27 nuevos); netos idénticos; con el peor caso, 0 strikes con signo en 10-12 y 10-14 (antes 23 y 23) |

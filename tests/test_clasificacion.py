@@ -64,6 +64,14 @@ def test_flujo_negativo_no_desborda():
     assert r["flujo"].dtype == "int64"
 
 
+def test_la_regla_es_obligatoria():
+    """R1 de ODTE.md: sin valor por defecto, olvidar la regla grita en vez de usar la histórica."""
+    with pytest.raises(TypeError):
+        clasificar_trades(hacer_trades([3.40]))
+    with pytest.raises(TypeError):
+        clasificar_trades(hacer_trades([3.40]), True)      # tampoco por posición
+
+
 def test_no_modifica_el_dataframe_original():
     original = hacer_trades([3.40, 3.30])
     clasificar_trades(original, estricto=True)

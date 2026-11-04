@@ -29,7 +29,7 @@ trades = trades.reset_index().merge(
     left_on="symbol", right_on="raw_symbol", how="left",
 ).set_index("ts_recv")
 
-clas = clasificar_trades(trades)
+clas = clasificar_trades(trades, estricto=False)
 clas["size"] = clas["size"].astype("int64")
 
 # ------------------------------------------------------------
