@@ -12,4 +12,5 @@ Cada módulo responde UNA pregunta:
   dealer         la tabla de signos del dealer
   calendario     ¿a qué hora cerró el mercado ese día? (cierres tempranos)
   descargas      ¿qué falta en caché para un rango de días, y cuánto cuesta? (UNA confirmación por paso)
+  toques         cuando el precio llegó a un strike, ¿aguantó o se cruzó? ¿qué flujo había antes? (M2)
 """

@@ -24,9 +24,10 @@ trabaja, qué riesgos tiene y qué mejoras se van aplicando. Se actualiza en cad
 | `cruce.py` | ¿Cuándo llegó el precio al strike? (primer cruce / máxima aproximación) | M1 |
 | `calendario.py` | ¿A qué hora cerró el mercado ese día? (cierres tempranos, tabla por año) | M3 |
 | `descargas.py` | ¿Qué falta en caché para un rango de días, y cuánto cuesta? | M3; `asegurar_odte` |
+| `toques.py` | Cuando el precio llegó a un strike, ¿aguantó o se cruzó? ¿Qué flujo medido había antes? | M2 |
 | `constantes.py` | Dataset, raíz, caché, zona NY | |
 
-### `scripts/odte/` (13 scripts, ~1.000 líneas), todos de UN día
+### `scripts/odte/` (15 scripts): 13 de UN día y 2 de rango (M2)
 
 | Grupo | Scripts |
 |---|---|
@@ -34,11 +35,12 @@ trabaja, qué riesgos tiene y qué mejoras se van aplicando. Se actualiza en cad
 | Flujo en el tiempo | `ver_flujo_0dte`, `ver_apertura_0dte`, `ver_giro_0dte`, `ver_zoom_0dte` |
 | Sesgos de la clasificación | `ver_sesgo_0dte`, `ver_paquete_0dte` |
 | Por strike | `ver_strikes_0dte`, `antes_despues_0dte`, `caracterizar_strike_0dte` |
+| Muestra (rango, M2) | `validar_0dte` (acumula en `data/validacion/odte_toques.csv`), `analizar_odte` ($0) |
 
 ### Tests
 
 `test_catalogo`, `test_clasificacion`, `test_dealer`, `test_flujo`, `test_trades`, `test_precio_spx`,
-`test_veredicto`, `test_cruce` (desde M1), `test_descargas` (desde M3, con un cliente de Databento falso). Cubren:
+`test_veredicto`, `test_cruce` (desde M1), `test_descargas` (desde M3, con un cliente de Databento falso), `test_toques` (desde M2). Cubren:
 - el bug de `expiration` (medianoche UTC = día anterior en NY);
 - las fronteras bid/ask de ambas reglas;
 - el desborde de `size` uint32 con flujo negativo;
@@ -101,14 +103,14 @@ indeterminado y ~30% se imprime fuera del bid/ask (paquetes).
 Orden aplicado: **M1 → M3** (M1 se hizo primero por un malentendido; la recomendación era M3 → M1). No quedó
 inconsistente: M1 no descarga nada y M3 no toca el veredicto; el único cruce es que `corte_strike` recibe la
 sesión de `spx_1min`, que desde M3 termina en la última barra real del día (12:59 en un cierre temprano).
-Después de M3 se resolvió **R3** (caché por símbolo), porque M2 necesita rangos. Siguiente: **M2**. Orden recomendado original: **M3 → M1 → M2**. Sin la descarga de rango no se puede armar la muestra, y sin un veredicto
+Después de M3 se resolvió **R3** (caché por símbolo), porque M2 necesita rangos. Siguiente: **M2** (en curso). Orden recomendado original: **M3 → M1 → M2**. Sin la descarga de rango no se puede armar la muestra, y sin un veredicto
 honesto la muestra mediría el 10% del volumen como si fuera todo.
 
 | Id | Mejora | Resuelve | Estado |
 |---|---|---|---|
 | M3 | Descargas 0DTE con el patrón de `datos.py` | R5, R2 (R3 no) | **hecha** (2026-11-04) |
 | M1 | Veredicto del signo medido en `src`, con el % indeterminado al lado | R4, R1 | **hecha** (2026-11-04) |
-| M2 | De días sueltos a una muestra validada | evidencia anecdótica | pendiente |
+| M2 | De días sueltos a una muestra validada | evidencia anecdótica | **en curso**: código hecho, 6 días medidos, 0 toques con signo |
 
 ### M3: descargas alineadas con `datos.py` — HECHA
 
@@ -221,7 +223,62 @@ De lo que falta: 2.647 son los 9 días nuevos (10-21..11-02), nunca descargados.
 viejos: series que la nueva selección agrega más símbolos sin trades de los archivos viejos (no se pueden
 distinguir; estos cuestan ~$0). El costo real se ve con `python scripts/signo_walls.py --solo-costo`.
 
-### M2: muestra validada
+### M2: muestra validada — EN CURSO (código hecho, muestra chica)
+
+**Qué se hizo:**
+- `src/odte/toques.py`: `Definicion` (los 5 parámetros, con `etiqueta()` estable), `niveles`, `primer_toque`,
+  `toques` (precio: toque, lado, resultado) y `flujo_previo` (flujo MEDIDO antes del toque + veredicto de M1).
+  18 tests en `tests/test_toques.py`.
+- `scripts/odte/validar_0dte.py INICIO FIN [--solo-cache | --solo-costo] [--sin F1,F2] [--paso --tol --desde
+  --ventana --margen]`: como mucho DOS confirmaciones para todo el rango: 1) catálogo + ES; 2) tcbbo **solo de
+  los strikes tocados** (se conocen recién con el ES, por eso no usa `asegurar_odte`, que pide todos los
+  strikes de una ventana). Acumula en `data/validacion/odte_toques.csv`, separado de los de GEX; cada corrida
+  reemplaza sus filas (fecha, definición), así que varias definiciones conviven en el mismo CSV sin mezclarse.
+- `scripts/odte/analizar_odte.py [definición]`: $0. Episodios = días; la prueba "dealer + → aguanta,
+  dealer − → cruza" solo sobre toques con signo medido, contra los dos ingenuos en esos mismos toques;
+  menos de 10 días con signo = "NO es evidencia".
+
+#### Definiciones (vigente y alternativas a analizar con la muestra)
+
+Todo se mide con **cierres de barras de 1 min** del SPX estimado (ES − base). Índice = inicio de la barra, hora NY.
+
+| Concepto | Definición vigente (`p25_t2_d1000_v30_m5`) | Alternativas a probar | Por qué importa |
+|---|---|---|---|
+| **Nivel** | strikes múltiplos de **25** | 5 (todos los strikes); 50; solo los gamma walls del día anterior | 25 reduce niveles pegados (correlacionados) y abarata el tcbbo; 5 da más toques pero muy dependientes entre sí |
+| **Toque** | primera barra desde las **10:00** cuyo cierre queda a **≤ 2 pts** del strike, o salta al otro lado, viniendo de **fuera** de la banda (barra anterior a > 2 pts) | tolerancia 1 / 3 pts; desde 09:45 / 10:30; usar máximo/mínimo de la barra en vez del cierre; todos los toques del día, no solo el primero | 10:00 evita el ruido de la apertura; "viniendo de fuera" evita contar como toque un precio que ya estaba encima del strike |
+| **Lado** | el lado de la barra anterior al toque (`arriba` = venía de arriba, el strike actúa como soporte) | — | separa soporte de techo |
+| **Resultado** | en las **30** barras desde la del toque (incluida), si algún cierre pasa el strike hacia el otro lado por **> 5 pts** → `cruzó`; si no → `aguantó`. Sesión que termina antes → `ventana corta` (fuera de la muestra) | ventana 15 / 60 min o hasta el cierre; margen 3 / 10 pts; margen proporcional al rango del día | define qué es "aguantar"; con margen chico, el ruido de 1 min cuenta como cruce |
+| **Flujo medido** | trades del strike (calls + puts) desde las 09:30 hasta **antes** del inicio de la barra del toque, regla estricta | solo los últimos 30/60 min antes del toque; calls y puts por separado contra la nula | el flujo posterior no puede explicar el toque (orden temporal, fundamento 6) |
+| **Signo** | `veredicto.signo_dealer`: \|neto\| ≥ 200 **y** \|neto\| > indeterminado (peor caso) | criterio menos exigente: \|neto\| > una fracción del indeterminado (pendiente de M1) | hoy es el cuello de botella: ver resultado |
+| **Hipótesis** | dealer + (largo de gamma) → aguanta; dealer − (corto) → se cruza | — | |
+| **Ingenuos** | a) frecuencia base (siempre el resultado más común); b) recorrido: aguanta si `dist_previa` (\|SPX − K\| 30 min antes) > mediana | distancia a la apertura; rango de la primera hora | el signo tiene que ganarles en los MISMOS toques |
+| **Episodio** | el día (los toques de un día comparten régimen y flujo) | rachas del mismo signo medido dentro del día | tamaño honesto de la muestra = días |
+
+Una definición nueva se corre con las opciones del script; queda en el CSV con su propia `definicion` y se
+analiza aparte (`analizar_odte.py <etiqueta>`). Cambiar paso o tolerancia cambia los strikes tocados, y
+eso puede pedir tcbbo nuevo; las demás opciones reusan la caché.
+
+**Primera corrida ($0, `--solo-cache`, 09-24..10-19):** 6 días medidos (09-29, 10-12, 10-14, 10-15, 10-16 y
+10-19); 4 días saltados por falta de tcbbo de los strikes tocados (10-02, 10-05, 10-06, 10-13); 8 sin
+catálogo/ES.
+| | toques | días |
+|---|---|---|
+| Total | 16 (8 aguantó, 8 cruzó) | 6 |
+| Con signo medido | **0** | 0 |
+| `indet. domina` | 13 (mediana 44,5% indet.) | 5 |
+| `sin evidencia` | 3 | 2 |
+
+La prueba no se puede hacer: ningún toque pasa el veredicto. Es lo mismo que mostró M1, ahora en una
+muestra. Referencia: la frecuencia base es 50% y el ingenuo de recorrido acierta 38% (peor que la moneda).
+Mientras el criterio del signo no cambie, ampliar la muestra solo va a confirmar el "sin evidencia".
+
+**Pendiente:**
+- Cotizar y completar la muestra: `python scripts/odte/validar_0dte.py 2026-09-24 2026-11-03 --sin 2026-10-20
+  --solo-costo` (el paso 1 hay que bajarlo antes de poder cotizar el tcbbo).
+- Decidir el criterio del signo (pendiente de M1) antes de pagar mucho tcbbo.
+- `--solo-costo` no se probó con la clave real (sin clave no se puede cotizar).
+
+**Propuesta original:**
 - Un script de rango (`validar_0dte`) que mida algo fijo por día, por ejemplo el flujo estricto antes de tocar el
   nivel frente a si el nivel aguantó o se cruzó.
 - Acumulador CSV propio, separado de los de GEX.
@@ -238,3 +295,4 @@ distinguir; estos cuestan ~$0). El costo real se ve con `python scripts/signo_wa
 | 2026-11-04 | M1: `veredicto.py` y `cruce.py` en `src/odte`; `estricto` obligatorio; `ver_strikes` y `antes_despues` con `%indet` | (este commit) | 193 tests (27 nuevos); netos idénticos; con el peor caso, 0 strikes con signo en 10-12 y 10-14 (antes 23 y 23) |
 | 2026-11-04 | M3: `asegurar_descargas` (datos), `asegurar_tcbbo`, `asegurar_odte`, `calendario`; 3 scripts sin descarga copiada; mensajes a stderr | (este commit) | 206 tests (13 nuevos); stdout idéntico en 8 scripts salvo `[caché]`; rango 0DTE = como mucho 2 confirmaciones (antes ~3 por día) |
 | 2026-11-04 | R3: caché tcbbo por símbolo (`plan_tcbbo`, `leer_tcbbo`, `.json` de pedidos); 4 scripts leen con `leer_tcbbo` | (este commit) | 216 tests (10 nuevos); stdout idéntico en 7 scripts; `signo_walls` pasa de 100% a 50% día-serie sin caché |
+| 2026-11-04 | M2: `toques.py` (definición del toque y del resultado, flujo previo), `validar_0dte` (rango, 2 confirmaciones, tcbbo solo de strikes tocados), `analizar_odte`; definiciones y alternativas en la sección M2 | (este commit) | 18 tests nuevos; 1ª corrida $0: 16 toques en 6 días, 8 aguantó / 8 cruzó, **0 con signo medido** (13 indet. domina, 3 sin evidencia) |
