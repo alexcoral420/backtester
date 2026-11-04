@@ -103,14 +103,15 @@ indeterminado y ~30% se imprime fuera del bid/ask (paquetes).
 Orden aplicado: **M1 → M3** (M1 se hizo primero por un malentendido; la recomendación era M3 → M1). No quedó
 inconsistente: M1 no descarga nada y M3 no toca el veredicto; el único cruce es que `corte_strike` recibe la
 sesión de `spx_1min`, que desde M3 termina en la última barra real del día (12:59 en un cierre temprano).
-Después de M3 se resolvió **R3** (caché por símbolo), porque M2 necesita rangos. Siguiente: **M2** (en curso). Orden recomendado original: **M3 → M1 → M2**. Sin la descarga de rango no se puede armar la muestra, y sin un veredicto
+Después de M3 se resolvió **R3** (caché por símbolo), porque M2 necesita rangos. Después, **M2** (cerrada: sin evidencia, estructural). Siguiente: **M4**. Orden recomendado original: **M3 → M1 → M2**. Sin la descarga de rango no se puede armar la muestra, y sin un veredicto
 honesto la muestra mediría el 10% del volumen como si fuera todo.
 
 | Id | Mejora | Resuelve | Estado |
 |---|---|---|---|
 | M3 | Descargas 0DTE con el patrón de `datos.py` | R5, R2 (R3 no) | **hecha** (2026-11-04) |
 | M1 | Veredicto del signo medido en `src`, con el % indeterminado al lado | R4, R1 | **cerrada** (2026-11-04): peor caso se mantiene |
-| M2 | De días sueltos a una muestra validada | evidencia anecdótica | **en curso**: código hecho, 6 días medidos, 0 toques con signo |
+| M2 | De días sueltos a una muestra validada | evidencia anecdótica | **cerrada** (2026-11-04): sin evidencia, estructural |
+| M4 | ¿Un nivel con más carga (OI, sin signo) aguanta más? | la pregunta de M2 sin necesitar el signo | propuesta: falta diseño fijo + 3 dudas |
 
 ### M3: descargas alineadas con `datos.py` — HECHA
 
@@ -234,7 +235,7 @@ De lo que falta: 2.647 son los 9 días nuevos (10-21..11-02), nunca descargados.
 viejos: series que la nueva selección agrega más símbolos sin trades de los archivos viejos (no se pueden
 distinguir; estos cuestan ~$0). El costo real se ve con `python scripts/signo_walls.py --solo-costo`.
 
-### M2: muestra validada — EN CURSO (código hecho, muestra chica)
+### M2: muestra validada — CERRADA: sin evidencia, estructural (2026-11-04)
 
 **Qué se hizo:**
 - `src/odte/toques.py`: `Definicion` (los 5 parámetros, con `etiqueta()` estable), `niveles`, `primer_toque`,
@@ -281,13 +282,46 @@ catálogo/ES.
 
 La prueba no se puede hacer: ningún toque pasa el veredicto. Es lo mismo que mostró M1, ahora en una
 muestra. Referencia: la frecuencia base es 50% y el ingenuo de recorrido acierta 38% (peor que la moneda).
-Mientras el criterio del signo no cambie, ampliar la muestra solo va a confirmar el "sin evidencia".
 
-**Pendiente:**
-- Cotizar y completar la muestra: `python scripts/odte/validar_0dte.py 2026-09-24 2026-11-03 --sin 2026-10-20
-  --solo-costo` (el paso 1 hay que bajarlo antes de poder cotizar el tcbbo).
-- Decidir el criterio del signo (pendiente de M1) antes de pagar mucho tcbbo.
-- `--solo-costo` no se probó con la clave real (sin clave no se puede cotizar).
+#### Cierre: por qué el resultado es estructural y no falta de muestra
+
+Evidencia en `data/validacion/odte_toques.csv` (columnas `indet_*` y `neto_inferido_interior`, de
+`toques.flujo_previo` + `clasificacion.ubicar_trades`); se reproduce con `analizar_odte.py`, sección
+"Por qué no hay signo". 16 toques, flujo antes del toque:
+| Medida | Valor |
+|---|---|
+| \|neto\| / indeterminado | mediana **0,035**, máximo 0,40 (el peor caso exige > 1) |
+| Toques que pasarían con umbral 50% / 25% / 10% / 5% del indet. | 0 / 1 / 2 / 6 |
+| Indet. en el punto medio exacto (ninguna regla de bid/ask lo firma) | mediana 44% (28–59%) |
+| Indet. en el interior del spread | mediana 49% (40–60%) |
+| Indet. fuera del spread (paquetes) | mediana 9% (1–19%) |
+| Signo del neto estricto = signo del interior firmado por cercanía (INFERIDO) | **9 de 16** |
+| Veredicto con el interior firmado por cercanía (INFERIDO) | 1 "+", 11 indet. domina, 4 sin evidencia |
+
+Lectura:
+- El neto firmado es ~4% de lo que no se puede firmar. Ningún umbral defendible lo convierte en signo
+  (ver el cierre de M1).
+- Casi la mitad de lo indeterminado está en el punto medio exacto: no lo firma ninguna regla de cotización.
+- Firmar el interior por cercanía no rescata la medición: el signo cambia en 7 de 16 toques según la
+  regla, así que **depende de la regla, no del mercado**. Y aun así solo 1 toque pasa el veredicto.
+- Es el mismo hallazgo de Fase B (85–96% indeterminado en las walls, `signo_walls`), ahora en el
+  intradía 0DTE. **Con OPRA tcbbo y reglas de cotización, el agresor (y con él el signo del dealer) no
+  es identificable, ni en el plazo medio ni en el intradía.**
+
+Además, aunque un signo pasara: el flujo intradía es un CAMBIO de inventario, no su nivel (la posición
+que el dealer traía no se mide), y "el dealer es la contraparte" es un supuesto (fundamento 4).
+
+**Qué sobrevive:** el lado del precio de `toques.py` (`Definicion`, `toques`: toque, lado, resultado), que
+no depende del signo y es la base de **M4**; y los volúmenes medidos sin signo (compra + venta + indet).
+
+**Qué se archiva:** la prueba "dealer + → aguanta / dealer − → cruza" y ampliar esta muestra con tcbbo.
+**No se recomienda** pagar el paso 2 de `validar_0dte` para eso: solo confirmaría el "sin evidencia".
+(`--solo-costo` no se probó con la clave real.)
+
+**Siguiente (M4, propuesta):** cambiar la pregunta en vez del umbral: ¿un nivel con más carga (OI medido sin
+signo; gamma bruta como MODELO) aguanta más? Antes de correrla hay que dejar escrito el diseño
+fijo y resolver tres dudas: de dónde sale el OI 0DTE sin mirar al futuro, cuántos días alcanzan con la
+caché, y el error de la base ES − SPX frente a la tolerancia de 2 pts.
 
 **Propuesta original:**
 - Un script de rango (`validar_0dte`) que mida algo fijo por día, por ejemplo el flujo estricto antes de tocar el
@@ -308,3 +342,4 @@ Mientras el criterio del signo no cambie, ampliar la muestra solo va a confirmar
 | 2026-11-04 | R3: caché tcbbo por símbolo (`plan_tcbbo`, `leer_tcbbo`, `.json` de pedidos); 4 scripts leen con `leer_tcbbo` | (este commit) | 216 tests (10 nuevos); stdout idéntico en 7 scripts; `signo_walls` pasa de 100% a 50% día-serie sin caché |
 | 2026-11-04 | M2: `toques.py` (definición del toque y del resultado, flujo previo), `validar_0dte` (rango, 2 confirmaciones, tcbbo solo de strikes tocados), `analizar_odte`; definiciones y alternativas en la sección M2 | (este commit) | 18 tests nuevos; 1ª corrida $0: 16 toques en 6 días, 8 aguantó / 8 cruzó, **0 con signo medido** (13 indet. domina, 3 sin evidencia) |
 | 2026-11-04 | Cierre de M1: el criterio del peor caso se mantiene (pendiente resuelto con la razón \|neto\|/indet) | (este commit) | 10-12: mediana 0,080, máx 0,18; 10-14: mediana 0,039, máx 0,56; 0 de 50 strikes > 100%, 1 > 50% |
+| 2026-11-04 | Cierre de M2: `ubicar_trades` (dónde se imprimió cada trade), descomposición del indet. y neto INFERIDO del interior en `flujo_previo`; sección "Por qué no hay signo" en `analizar_odte`; CSV regenerado ($0) | (este commit) | 245 tests (11 nuevos); \|neto\|/indet mediana 0,035; indet. 44% en el medio exacto, 49% interior, 9% fuera; el signo cambia con la regla en 7 de 16; con interior inferido 1 de 16 con signo |

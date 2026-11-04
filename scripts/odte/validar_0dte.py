@@ -14,6 +14,10 @@ Descargas (patrón único de datos.py), como mucho DOS confirmaciones para todo 
   2) tcbbo SOLO de los strikes tocados (se saben recién con el ES)      (lo caro)
 --solo-cache: no cotiza ni descarga nada; salta (y lista) los días a los que les falte algo.
 
+M2 está CERRADA (ODTE.md): con la regla de cotización el signo del agresor no es identificable
+(|neto| / indet ~0,04 antes del toque). NO se recomienda pagar tcbbo para ampliar esta muestra: solo
+confirmaría el "sin evidencia". El lado del precio (src/odte/toques.py) sigue siendo la base de M4.
+
 Acumulador: data/validacion/odte_toques.csv (separado de los de GEX). Cada corrida reemplaza las filas
 de sus (fecha, definición). Análisis conjunto, $0: python scripts/odte/analizar_odte.py
 """

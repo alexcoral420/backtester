@@ -100,9 +100,12 @@ def test_strike_no_tocado_no_aparece():
     assert toques(s).empty
 
 
-def trade(hora, k, tipo, signo, size):
+def trade(hora, k, tipo, signo, size, precio=None):
+    """bid 1.00 / ask 1.20: el precio por defecto es coherente con el signo (ask, bid o medio)."""
+    if precio is None:
+        precio = {1: 1.20, -1: 1.00, 0: 1.10}[signo]
     return dict(ts_recv=pd.Timestamp(f"2026-10-14 {hora}", tz=NY), strike_price=k, instrument_class=tipo,
-                signo=signo, size=size)
+                signo=signo, size=size, price=precio, bid_px_00=1.00, ask_px_00=1.20)
 
 
 def test_flujo_previo_excluye_el_minuto_del_toque_y_otros_strikes():
@@ -128,4 +131,24 @@ def test_flujo_previo_sin_trades():
 def test_flujo_previo_sin_clasificar_grita():
     s = con_relleno(7710, [7710, 7701] + [7705] * 40)
     with pytest.raises(ValueError):
-        flujo_previo(toques(s), pd.DataFrame([dict(ts_recv=1, strike_price=7700, size=1)]))
+        flujo_previo(toques(s), pd.DataFrame([dict(ts_recv=1, strike_price=7700, size=1, price=1, bid_px_00=1, ask_px_00=1)]))
+
+
+def test_descomposicion_de_lo_indeterminado():
+    s = con_relleno(7710, [7710, 7701] + [7705] * 40)
+    tr = pd.DataFrame([trade("10:00:01", 7700, "C", 0, 10),               # medio
+                       trade("10:00:02", 7700, "C", 0, 30, precio=1.15),  # interior, cerca del ask
+                       trade("10:00:03", 7700, "P", 0, 5, precio=1.02),   # interior, cerca del bid
+                       trade("10:00:04", 7700, "P", 0, 7, precio=1.50),   # fuera (paquete)
+                       trade("10:00:05", 7700, "P", 1, 3)])
+    r = flujo_previo(toques(s), tr).iloc[0]
+    assert (r["indet_medio"], r["indet_interior"], r["indet_fuera"], r["indet_sin_cotizacion"]) == (10, 35, 7, 0)
+    assert r["indet"] == 52 and r["neto_inferido_interior"] == 25
+
+
+def test_signo_incoherente_con_la_ubicacion_grita():
+    """Un trade marcado indeterminado pero impreso en el ask: las partes no suman y debe gritar."""
+    s = con_relleno(7710, [7710, 7701] + [7705] * 40)
+    tr = pd.DataFrame([trade("10:00:01", 7700, "C", 0, 10, precio=1.20)])
+    with pytest.raises(RuntimeError):
+        flujo_previo(toques(s), tr)

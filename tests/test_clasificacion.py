@@ -76,3 +76,29 @@ def test_no_modifica_el_dataframe_original():
     original = hacer_trades([3.40, 3.30])
     clasificar_trades(original, estricto=True)
     assert "signo" not in original.columns
+
+# ---------------- ubicación (descomposición de lo indeterminado) ----------------
+
+@pytest.mark.parametrize("precio, esperado", [
+    (3.40, "ask"), (3.30, "bid"), (3.35, "medio"), (3.37, "interior_ask"), (3.32, "interior_bid"),
+    (3.13, "fuera"), (3.50, "fuera"),
+])
+def test_ubicacion(precio, esperado):
+    from src.odte.clasificacion import ubicar_trades
+    assert ubicar_trades(hacer_trades([precio])).iloc[0] == esperado
+
+
+def test_ubicacion_coincide_con_la_regla_estricta():
+    """Lo que la estricta firma es exactamente ask/bid; lo complejo es exactamente 'fuera'."""
+    from src.odte.clasificacion import ubicar_trades
+    t = hacer_trades([3.40, 3.30, 3.35, 3.37, 3.32, 3.13, 3.50, 3.3999, 3.3001])
+    u, r = ubicar_trades(t), clasificar_trades(t, estricto=True)
+    assert ((r["signo"] == 1) == (u == "ask")).all() and ((r["signo"] == -1) == (u == "bid")).all()
+    assert (r["complejo"] == (u == "fuera")).all()
+
+
+def test_ubicacion_sin_cotizacion():
+    from src.odte.clasificacion import ubicar_trades
+    t = hacer_trades([3.35])
+    t["bid_px_00"] = float("nan")
+    assert ubicar_trades(t).iloc[0] == "sin cotización"

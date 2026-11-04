@@ -2,6 +2,7 @@
 clasificacion.py — ¿Quién agredió en cada trade?
 Regla del punto medio (histórica) y regla estricta (vigente).
 """
+import numpy as np
 import pandas as pd
 
 
@@ -35,3 +36,27 @@ def clasificar_trades(trades: pd.DataFrame, *, estricto: bool) -> pd.DataFrame:
         df.loc[precio < medio, "signo"] = -1
     df["flujo"] = df["signo"].astype("int64") * df["size"].astype("int64")
     return df
+
+UBICACIONES = ("ask", "bid", "fuera", "medio", "interior_ask", "interior_bid", "sin cotización")
+
+
+def ubicar_trades(trades: pd.DataFrame) -> pd.Series:
+    """
+    DÓNDE se imprimió cada trade respecto del bid/ask (no quién agredió). Sirve para descomponer lo
+    indeterminado de la regla estricta (cierre de M2, ODTE.md):
+      'ask' / 'bid'        = los únicos que la regla estricta firma
+      'fuera'              = fuera del bid/ask (= complejo: paquetes)
+      'medio'              = exactamente en el punto medio: ninguna regla de cotización lo firma
+      'interior_ask/_bid'  = dentro del spread, más cerca del ask / del bid. Firmarlos por cercanía es
+                             INFERIDO (tipo Lee-Ready), nunca medido: va en columnas aparte.
+      'sin cotización'     = bid o ask faltante
+    Mismo redondeo a 4 decimales que clasificar_trades.
+    """
+    precio = trades["price"].round(4)
+    bid, ask = trades["bid_px_00"].round(4), trades["ask_px_00"].round(4)
+    medio = ((trades["bid_px_00"] + trades["ask_px_00"]) / 2).round(4)
+    sin = bid.isna() | ask.isna()
+    casos = [sin, precio == ask, precio == bid, (precio < bid) | (precio > ask), precio == medio,
+             precio > medio, precio < medio]
+    return pd.Series(np.select(casos, ["sin cotización", "ask", "bid", "fuera", "medio", "interior_ask",
+                                       "interior_bid"], "sin cotización"), index=trades.index)

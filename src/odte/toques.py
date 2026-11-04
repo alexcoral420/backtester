@@ -17,14 +17,20 @@ Definición vigente (la de Definicion() por defecto; las alternativas a probar e
     la barra del toque (el minuto del toque queda fuera, como en cruce.py), regla estricta. El signo del
     dealer lo da veredicto.signo_dealer (peor caso contra lo indeterminado) y va con su % indeterminado.
 
-Las columnas son de dos clases y no se mezclan: precio (toque, resultado) y flujo MEDIDO (compra, venta,
-indet, neto, dealer_medido). No hay nada supuesto: la hipótesis nula no entra en este módulo.
+Las columnas son de tres clases y no se mezclan:
+  - precio: toque, lado, dist_previa, peor_exceso, resultado;
+  - flujo MEDIDO: compra, venta, indet, neto, neto_calls, neto_puts, pct_indet, dealer_medido, y la
+    descomposición de lo indeterminado por ubicación (indet_medio, indet_interior, indet_fuera, indet_sin_cotizacion);
+  - flujo INFERIDO: neto_inferido_interior = interior más cerca del ask − más cerca del bid (tipo
+    Lee-Ready). No es medido: sirve solo para ver si el signo depende de la regla (cierre de M2).
+No hay nada supuesto: la hipótesis nula no entra en este módulo.
 """
 from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
 
+from .clasificacion import ubicar_trades
 from .veredicto import pct_indet, signo_dealer, volumenes
 
 AGUANTO, CRUZO, VENTANA_CORTA = "aguantó", "cruzó", "ventana corta"
@@ -110,9 +116,11 @@ def toques(dia: pd.Series, d: Definicion = Definicion()) -> pd.DataFrame:
 def flujo_previo(tq: pd.DataFrame, clasificados: pd.DataFrame, ts: str = "ts_recv") -> pd.DataFrame:
     """Agrega a cada toque el flujo MEDIDO de su strike ANTES de t_toque (regla estricta ya aplicada:
     columnas `signo`, `size`, `strike_price`, `instrument_class` y `ts`)."""
-    faltan = {"signo", "size", "strike_price", "instrument_class", ts} - set(clasificados.columns)
+    faltan = ({"signo", "size", "strike_price", "instrument_class", "price", "bid_px_00", "ask_px_00", ts}
+              - set(clasificados.columns))
     if faltan:
         raise ValueError(f"faltan columnas en los trades clasificados: {sorted(faltan)}")
+    clasificados = clasificados.assign(_ubic=ubicar_trades(clasificados))
     filas = []
     for _, r in tq.iterrows():
         g = clasificados[(clasificados["strike_price"] == r["strike"]) & (clasificados[ts] < r["t_toque"])]
@@ -121,10 +129,18 @@ def flujo_previo(tq: pd.DataFrame, clasificados: pd.DataFrame, ts: str = "ts_rec
         neto = (g["signo"].astype("int64") * g["size"].astype("int64"))
         tipo = g["instrument_class"]
         p = pct_indet(c, vt, i)
+        u = g.groupby("_ubic")["size"].sum().astype("int64")
+        partes = dict(indet_medio=int(u.get("medio", 0)),
+                      indet_interior=int(u.get("interior_ask", 0) + u.get("interior_bid", 0)),
+                      indet_fuera=int(u.get("fuera", 0)), indet_sin_cotizacion=int(u.get("sin cotización", 0)))
+        if sum(partes.values()) != i:
+            raise RuntimeError(f"strike {r['strike']}: la ubicación ({partes}) no suma el indeterminado ({i})")
         filas.append(dict(compra=c, venta=vt, indet=i, neto=c - vt,
                           neto_calls=int(neto[tipo == "C"].sum()), neto_puts=int(neto[tipo == "P"].sum()),
-                          pct_indet=None if p != p else round(p, 1), dealer_medido=signo_dealer(c, vt, i)))
+                          pct_indet=None if p != p else round(p, 1), dealer_medido=signo_dealer(c, vt, i),
+                          **partes, neto_inferido_interior=int(u.get("interior_ask", 0) - u.get("interior_bid", 0))))
     medido = pd.DataFrame(filas, index=tq.index,
                           columns=["compra", "venta", "indet", "neto", "neto_calls", "neto_puts",
-                                   "pct_indet", "dealer_medido"])
+                                   "pct_indet", "dealer_medido", "indet_medio", "indet_interior",
+                                   "indet_fuera", "indet_sin_cotizacion", "neto_inferido_interior"])
     return pd.concat([tq, medido], axis=1)
