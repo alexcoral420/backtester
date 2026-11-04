@@ -25,10 +25,10 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.datos import _cliente, precio_spx
+from src.datos import precio_spx
 from src.gex import construir_cadena, niveles_gamma
 from src.odte.clasificacion import clasificar_trades
-from src.odte.trades import _parametros_tcbbo, ruta_cache_tcbbo
+from src.odte.trades import asegurar_tcbbo, ruta_cache_tcbbo
 from src.signo_medido import MIN_ABS
 
 DESDE, HASTA, BANDA, CUBRIR = "09:30", "16:15", 25, 0.80
@@ -53,19 +53,8 @@ simbolos = sorted(sel["symbol"].unique())
 print(f"{fecha} | SPX {S:.2f} | {len(niv)} zonas | {len(simbolos)} series (80% de la |gamma| de cada zona)")
 
 # ---------------- costo y descarga con UNA confirmación ----------------
+asegurar_tcbbo({fecha: simbolos}, DESDE, HASTA)
 ruta = ruta_cache_tcbbo(fecha, simbolos, DESDE, HASTA)
-if os.path.exists(ruta):
-    print(f"[caché] {ruta}")
-else:
-    cliente = _cliente()
-    costo = cliente.metadata.get_cost(**_parametros_tcbbo(fecha, simbolos, DESDE, HASTA))
-    print(f"tcbbo {fecha} {DESDE}-{HASTA}: costo ${costo:.4f}. ¿Descargar? (s/n): ", end="", flush=True)
-    if sys.stdin.readline().strip().lower() != "s":
-        raise SystemExit("Descarga cancelada.")
-    df = cliente.timeseries.get_range(**_parametros_tcbbo(fecha, simbolos, DESDE, HASTA)).to_df()
-    df.index = df.index.tz_convert("America/New_York")
-    df[["symbol", "price", "size", "bid_px_00", "ask_px_00", "bid_sz_00", "ask_sz_00"]].to_parquet(ruta)
-    print(f"[guardado] {len(df)} trades")
 
 tr = clasificar_trades(pd.read_parquet(ruta), estricto=True)
 tr["size"] = tr["size"].astype("int64")

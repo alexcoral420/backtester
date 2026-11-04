@@ -21,7 +21,7 @@ python scripts/ver_gex.py                # scripts take dates as positional args
 python scripts/comparar_versiones_gex.py 2026-09-24 2026-09-29
 ```
 
-- `config.py` raises `ValueError` at import time if `DATABENTO_API_KEY` is unset. Several test modules import it transitively (gex, odte.catalogo/trades/precio), so **tests need the variable set**. Any dummy value works. The tests make no network calls (yfinance is monkeypatched).
+- `config.py` raises `ValueError` at import time if `DATABENTO_API_KEY` is unset. Several test modules import it transitively (through `gex`), so **tests need the variable set**. The `odte` download modules create the client lazily and no longer need it at import. Any dummy value works. The tests make no network calls (yfinance is monkeypatched).
 - There is no linter/formatter config and no build step.
 
 ## Data and cost rules (important)
@@ -31,6 +31,9 @@ Databento downloads cost real money. Every download path follows the same patter
 2. Otherwise **`metadata.get_cost` first**, then an interactive `s/n` confirmation on stdin, and only then the download.
 
 For multi-day ranges, `datos.asegurar_cadenas(fechas, raices)` sums the cost of every missing (date, root, schema) and asks for **one** confirmation for the total. After that, `descargar_cadena` reads from the cache without prompting. Range scripts (`validar_gex`, `b2_flujo`) use this single-confirmation pattern. Do not reintroduce one prompt per day.
+The generic form is `datos.asegurar_descargas(pedidos, descripcion, solo_costo)`, where `pedidos` is a list of (path, `get_range` params, `procesar`). It is the one place for cache check, total cost, one confirmation, download and save. Use it for any new download:
+- `odte.trades.asegurar_tcbbo({fecha: símbolos}, desde, hasta, solo_costo)` is the tcbbo range download for the whole project (`b2_flujo`, `signo_walls`, `medir_niveles`, 0DTE).
+- `odte.descargas.asegurar_odte({fecha: (kmin, kmax)})` handles a 0DTE range with at most **two** confirmations: catalog + ES, then tcbbo. The tcbbo cost needs the catalog's symbols first.
 
 Do not bypass this, and do not run a script on uncached dates without the user knowing it will prompt for and spend credit. Cached dates cost $0. In `src/datos.py`, cache/cost messages go to **stderr** so that script stdout stays clean for before/after diffs. The `antes.txt`/`despues*.txt`/`gex_*.txt` files at the root are such captures, written by PowerShell redirection and therefore UTF-16.
 
@@ -89,7 +92,7 @@ Here k = gex_contrib/OI. The ΔOI excludes expirations, because an expiry is not
   - Light and dark palettes are validated separately with the dataviz validator.
 - Subagent `.claude/agents/revisor-supuesto-medido.md` is read-only (Read/Grep/Glob). Run it after changing the panel or any script that shows GEX.
 
-**0DTE package (`src/odte/`)**: one module per question (see `src/odte/__init__.py`): `catalogo` (the `definition` schema, 0DTE filter), `precio` (SPX per minute = ES 1-min minus the close basis, since OPRA has no index), `trades` (`tcbbo`, cache keyed by an md5 of the symbols plus the time window), `clasificacion` (midpoint rule vs a strict at-bid/at-ask rule, with a `complejo` flag for prints outside the spread; `estricto` is a required keyword, no default), `flujo` (per-minute public flow; the dealer is the opposite sign), `dealer` (the dealer sign table), `veredicto` (measured dealer sign per strike: a sign only if |neto| >= `MIN_ABS` AND |neto| > the indeterminate volume, worst case; otherwise "sin evidencia" / "indet. domina"; always reported next to `pct_indet`), `cruce` (`corte_strike`: first cross / closest approach, the time cut for "flow before the price arrived"). Constants are in `constantes.py`. Status, risks and the improvement log live in `ODTE.md`.
+**0DTE package (`src/odte/`)**: one module per question (see `src/odte/__init__.py`): `catalogo` (the `definition` schema, 0DTE filter), `precio` (SPX per minute = ES 1-min minus the close basis, since OPRA has no index), `trades` (`tcbbo`, cache keyed by an md5 of the symbols plus the time window), `clasificacion` (midpoint rule vs a strict at-bid/at-ask rule, with a `complejo` flag for prints outside the spread; `estricto` is a required keyword, no default), `flujo` (per-minute public flow; the dealer is the opposite sign), `dealer` (the dealer sign table), `veredicto` (measured dealer sign per strike: a sign only if |neto| >= `MIN_ABS` AND |neto| > the indeterminate volume, worst case; otherwise "sin evidencia" / "indet. domina"; always reported next to `pct_indet`), `cruce` (`corte_strike`: first cross / closest approach, the time cut for "flow before the price arrived"), `calendario` (`hora_cierre`: 16:00 or 13:00 on early-close days; the per-year table raises for an unlisted year; used for the 0DTE expiry and the ES session), `descargas` (`asegurar_odte`). Constants are in `constantes.py`. Status, risks and the improvement log live in `ODTE.md`.
 
 **Timezones:** every timestamp carries `America/New_York` explicitly. Databento `expiration` is midnight UTC, which falls on the *previous* day in NY. This was the project's first bug and has a regression test in `tests/test_catalogo.py`.
 

@@ -22,6 +22,8 @@ trabaja, qué riesgos tiene y qué mejoras se van aplicando. Se actualiza en cad
 | `dealer.py` | Tabla de signos del dealer | también la usa `src/gex.py` |
 | `veredicto.py` | ¿Qué signo del dealer sostiene el flujo medido, y con cuánto respaldo? | M1; usa `MIN_ABS` de `signo_medido` |
 | `cruce.py` | ¿Cuándo llegó el precio al strike? (primer cruce / máxima aproximación) | M1 |
+| `calendario.py` | ¿A qué hora cerró el mercado ese día? (cierres tempranos, tabla por año) | M3 |
+| `descargas.py` | ¿Qué falta en caché para un rango de días, y cuánto cuesta? | M3; `asegurar_odte` |
 | `constantes.py` | Dataset, raíz, caché, zona NY | |
 
 ### `scripts/odte/` (13 scripts, ~1.000 líneas), todos de UN día
@@ -36,7 +38,7 @@ trabaja, qué riesgos tiene y qué mejoras se van aplicando. Se actualiza en cad
 ### Tests
 
 `test_catalogo`, `test_clasificacion`, `test_dealer`, `test_flujo`, `test_trades`, `test_precio_spx`,
-`test_veredicto`, `test_cruce` (estos dos desde M1). Cubren:
+`test_veredicto`, `test_cruce` (desde M1), `test_descargas` (desde M3, con un cliente de Databento falso). Cubren:
 - el bug de `expiration` (medianoche UTC = día anterior en NY);
 - las fronteras bid/ask de ambas reglas;
 - el desborde de `size` uint32 con flujo negativo;
@@ -87,25 +89,58 @@ indeterminado y ~30% se imprime fuera del bid/ask (paquetes).
 | # | Riesgo | Dónde | Efecto |
 |---|---|---|---|
 | R1 ✅ M1 | `clasificar_trades` tenía `estricto=False` (regla histórica) por defecto | `clasificacion.py` | Un script nuevo que olvide el flag usa la regla vieja sin avisar. Hoy `ver_flujo` y `ver_sesgo` lo omiten a propósito, para comparar. |
-| R2 | Horas fijas: vencimiento 16:00 y ES 09:30–15:59 | `catalogo.py`, `precio.py` | En días de cierre temprano (13:00: 2026-11-27, 2026-12-24) el vencimiento queda mal y la base sale de una barra sin actividad, sin que se note. |
+| R2 ✅ M3 | Horas fijas: vencimiento 16:00 y ES 09:30–15:59 | `catalogo.py`, `precio.py` | En días de cierre temprano (13:00: 2026-11-27, 2026-12-24) el vencimiento queda mal y la base sale de una barra sin actividad, sin que se note. |
 | R3 | La caché del `tcbbo` depende de la lista exacta de símbolos | `trades.py` | Pedir el mismo día con un rango de strikes un poco distinto vuelve a pagar datos que se solapan. |
 | R4 ✅ M1 | El signo medido por strike se calculaba dentro de los scripts, solo con `MIN_ABS` | `ver_strikes_0dte`, `antes_despues_0dte` | Ignora `MIN_REL` y el % indeterminado: un "dealer −" puede apoyarse en el 10% del volumen. Choca con el contrato medido/supuesto. |
-| R5 | Cada descarga pide su propia confirmación, con mensajes por stdout | `catalogo.py`, `precio.py`, `trades.py` | Un rango de N días pediría ~3N confirmaciones (CLAUDE.md lo prohíbe) y ensucia el stdout de los scripts. |
+| R5 ✅ M3 | Cada descarga pedía su propia confirmación, con mensajes por stdout | `catalogo.py`, `precio.py`, `trades.py` | Un rango de N días pediría ~3N confirmaciones (CLAUDE.md lo prohíbe) y ensucia el stdout de los scripts. |
 
 ---
 
 ## 4. Mejoras propuestas
 
-Orden recomendado: **M3 → M1 → M2**. Sin la descarga de rango no se puede armar la muestra, y sin un veredicto
+Orden aplicado: **M1 → M3** (M1 se hizo primero por un malentendido; la recomendación era M3 → M1). No quedó
+inconsistente: M1 no descarga nada y M3 no toca el veredicto; el único cruce es que `corte_strike` recibe la
+sesión de `spx_1min`, que desde M3 termina en la última barra real del día (12:59 en un cierre temprano).
+Siguiente: **M2**. Orden recomendado original: **M3 → M1 → M2**. Sin la descarga de rango no se puede armar la muestra, y sin un veredicto
 honesto la muestra mediría el 10% del volumen como si fuera todo.
 
 | Id | Mejora | Resuelve | Estado |
 |---|---|---|---|
-| M3 | Descargas 0DTE con el patrón de `datos.py` | R5, R2, R3 (parcial) | pendiente |
+| M3 | Descargas 0DTE con el patrón de `datos.py` | R5, R2 (R3 no) | **hecha** (2026-11-04) |
 | M1 | Veredicto del signo medido en `src`, con el % indeterminado al lado | R4, R1 | **hecha** (2026-11-04) |
 | M2 | De días sueltos a una muestra validada | evidencia anecdótica | pendiente |
 
-### M3: descargas alineadas con `datos.py`
+### M3: descargas alineadas con `datos.py` — HECHA
+
+**Qué se hizo:**
+- `datos.asegurar_descargas(pedidos, descripcion, solo_costo)`: el patrón "caché primero, costo total, UNA
+  confirmación" en un solo lugar. Cliente diferido (`datos._cliente`) y mensajes por stderr.
+- `trades.asegurar_tcbbo({fecha: símbolos}, desde, hasta, solo_costo)`: rango de tcbbo con una confirmación.
+  `parametros_tcbbo` es pública. `b2_flujo`, `signo_walls` y `medir_niveles` dejaron de copiar el bloque de
+  descarga (eran 3 copias idénticas) y usan esta función. Mismo formato de archivo (NY, mismas 7 columnas).
+- `catalogo` y `precio`: `pedidos_definicion` / `pedidos_es` + `ruta_*` / `parametros_*`. `descargar_definicion` y
+  `descargar_es_1min` usan el patrón (ya no `input()` ni `print` por stdout).
+- `descargas.asegurar_odte({fecha: (kmin, kmax)}, desde, hasta, solo_costo)`: un rango 0DTE completo con **como
+  mucho DOS** confirmaciones: 1) catálogo + ES, 2) tcbbo. Son dos porque el costo del tcbbo depende de qué
+  símbolos existían, y eso solo lo dice el catálogo. Ventana sin opciones -> `RuntimeError`.
+- `calendario.hora_cierre(fecha)` (R2): 16:00, o 13:00 el 2026-11-27 y el 2026-12-24. Un año sin tabla grita.
+  Lo usan `filtrar_0dte` (vencimiento) y el ES (última barra = cierre − 1 min).
+- Efecto lateral: `catalogo`, `trades` y `precio` ya no importan `config` al cargarse; sus tests corren sin
+  `DATABENTO_API_KEY` (los que importan `gex` todavía la necesitan).
+
+**Verificación ($0, desde caché):** stdout antes/después de 8 scripts (`b2_flujo`, `signo_walls`,
+`medir_niveles`, `ver_strikes`, `antes_despues`, `caracterizar_strike`, `ver_zoom`, `ver_flujo`). Todos los
+números idénticos; la única diferencia son las líneas `[caché] ...`, que pasaron de stdout a stderr.
+`signo_walls` se comparó hasta el paso de costo: `data/procesado` ya llega al 11-03 y le faltan 4 días de flujo
+(10-28..11-02) de tcbbo, que ahora pide con una confirmación.
+
+**Cambios de comportamiento a saber:**
+- `signo_walls --solo-costo` ya no lista el costo por día, solo el total.
+- La tabla de cierres tempranos se escribió a mano: conviene confirmarla contra el calendario oficial de
+  NYSE/Cboe, y agregar 2027 antes de usar fechas de ese año.
+- R3 (caché atada a la lista exacta de símbolos) sigue abierto.
+
+**Propuesta original:**
 - `asegurar_odte(fechas, ...)`: suma el costo de catálogo + ES + `tcbbo` de todos los días que falten y pide **una**
   confirmación.
 - Mensajes de caché y costo a stderr; cliente de Databento creado de forma diferida.
@@ -170,3 +205,4 @@ cambio va en `veredicto.py`, con sus tests.
 |---|---|---|---|
 | 2026-11-04 | Revisión inicial y creación de este archivo. Antes: `spxw-raices` fusionada a `main` (fast-forward a `48d7433`); el trabajo 0DTE sigue en la rama `odte-mejoras` | `2ca92b5` | 345 líneas en `src/odte`, 13 scripts, 6 tests; riesgos R1–R5; mejoras M1–M3 pendientes |
 | 2026-11-04 | M1: `veredicto.py` y `cruce.py` en `src/odte`; `estricto` obligatorio; `ver_strikes` y `antes_despues` con `%indet` | (este commit) | 193 tests (27 nuevos); netos idénticos; con el peor caso, 0 strikes con signo en 10-12 y 10-14 (antes 23 y 23) |
+| 2026-11-04 | M3: `asegurar_descargas` (datos), `asegurar_tcbbo`, `asegurar_odte`, `calendario`; 3 scripts sin descarga copiada; mensajes a stderr | (este commit) | 206 tests (13 nuevos); stdout idéntico en 8 scripts salvo `[caché]`; rango 0DTE = como mucho 2 confirmaciones (antes ~3 por día) |

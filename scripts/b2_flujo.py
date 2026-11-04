@@ -21,11 +21,11 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.datos import CARPETA_CACHE, _cliente, ruta_cadena
+from src.datos import CARPETA_CACHE, ruta_cadena
 from src.gex import HIPOTESIS_NULA_PUBLICO
 from src.inventario import delta_oi, fecha_flujo, oi_por_fecha
 from src.odte.clasificacion import clasificar_trades
-from src.odte.trades import _parametros_tcbbo, ruta_cache_tcbbo
+from src.odte.trades import asegurar_tcbbo, ruta_cache_tcbbo
 from src.signo_medido import veredicto
 
 DESDE, HASTA = "09:30", "16:15"
@@ -60,20 +60,7 @@ nivel = {**{s: "1 soporte" for s in n1}, **{s: "2 vertical" for s in n2}, **{s: 
 simbolos = sorted(nivel)
 
 # ---------------- descarga con UNA confirmación ----------------
-pendientes = [d for d in dias if not os.path.exists(ruta_cache_tcbbo(d, simbolos, DESDE, HASTA))]
-if pendientes:
-    cliente = _cliente()
-    costo = sum(cliente.metadata.get_cost(**_parametros_tcbbo(d, simbolos, DESDE, HASTA)) for d in pendientes)
-    print(f"tcbbo: {len(simbolos)} series x {len(pendientes)} días sin caché -> costo TOTAL ${costo:.4f}. "
-          f"¿Descargar todo? (s/n): ", end="", flush=True)
-    if sys.stdin.readline().strip().lower() != "s":
-        raise SystemExit("Descarga cancelada.")
-    for d in pendientes:
-        df = cliente.timeseries.get_range(**_parametros_tcbbo(d, simbolos, DESDE, HASTA)).to_df()
-        df.index = df.index.tz_convert("America/New_York")
-        df = df[["symbol", "price", "size", "bid_px_00", "ask_px_00", "bid_sz_00", "ask_sz_00"]]
-        df.to_parquet(ruta_cache_tcbbo(d, simbolos, DESDE, HASTA))
-        print(f"[guardado] {d}: {len(df)} trades")
+asegurar_tcbbo({d: simbolos for d in dias}, DESDE, HASTA)
 
 tr = pd.concat([pd.read_parquet(ruta_cache_tcbbo(d, simbolos, DESDE, HASTA)).assign(dia=d) for d in dias])
 tr = clasificar_trades(tr, estricto=True)

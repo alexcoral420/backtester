@@ -10,4 +10,6 @@ Cada módulo responde UNA pregunta:
   veredicto      ¿qué signo del dealer sostiene el flujo medido, y con cuánto respaldo?
   cruce          ¿cuándo llegó el precio al strike?
   dealer         la tabla de signos del dealer
+  calendario     ¿a qué hora cerró el mercado ese día? (cierres tempranos)
+  descargas      ¿qué falta en caché para un rango de días, y cuánto cuesta? (UNA confirmación por paso)
 """

@@ -3,58 +3,38 @@ catalogo.py — ¿Qué opciones SPXW existían un día y cuáles eran 0DTE?
 Fuente: schema `definition` de Databento.
 """
 import os
-from datetime import datetime, timedelta
 
-import databento as db
 import pandas as pd
 
-from config import DATABENTO_KEY
+from src import datos
 from src.simbolos import parsear_simbolos
+from .calendario import hora_cierre
 from .constantes import CARPETA_CACHE, DATASET, RAIZ, ZONA_NY
+
+
+def ruta_definicion(fecha: str) -> str:
+    return os.path.join(CARPETA_CACHE, f"definicion_SPXW_{fecha}.parquet")
+
+
+def parametros_definicion(fecha: str) -> dict:
+    """El día completo (end es exclusivo, por eso +1 día). "parent" = toda la familia SPXW."""
+    fin = (pd.Timestamp(fecha) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+    return dict(dataset=DATASET, symbols=RAIZ, stype_in="parent", schema="definition",
+                start=fecha, end=fin)
+
+
+def pedidos_definicion(fechas) -> list:
+    """Pedidos para datos.asegurar_descargas (el definition se guarda tal cual llega)."""
+    return [(ruta_definicion(f), parametros_definicion(f), lambda df: df) for f in fechas]
 
 
 def descargar_definicion(fecha: str) -> pd.DataFrame:
     """
-    Baja el CATÁLOGO de opciones SPXW que existían en `fecha` (formato 'AAAA-MM-DD').
-    Usa caché: si ya se descargó antes, lo lee del disco y no vuelve a pagar.
+    El CATÁLOGO de opciones SPXW que existían en `fecha` ('AAAA-MM-DD').
+    Caché primero; si falta, costo + confirmación (datos.asegurar_descargas).
     """
-    ruta = os.path.join(CARPETA_CACHE, f"definicion_SPXW_{fecha}.parquet")
-
-    # 1) Si ya existe en disco -> usarlo (adquisición una vez, uso muchas)
-    if os.path.exists(ruta):
-        print(f"[caché] leyendo {ruta}")
-        return pd.read_parquet(ruta)
-
-    # 2) Rango: el día pedido completo (end es exclusivo, por eso +1 día)
-    inicio = fecha
-    fin = (datetime.strptime(fecha, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
-
-    cliente = db.Historical(DATABENTO_KEY)
-    parametros = dict(
-        dataset=DATASET,
-        symbols=RAIZ,
-        stype_in="parent",     # "parent" = traer toda la familia sin listar cada símbolo
-        schema="definition",
-        start=inicio,
-        end=fin,
-    )
-
-    # 3) Ver el costo ANTES de pagar
-    costo = cliente.metadata.get_cost(**parametros)
-    print(f"Costo estimado: ${costo:.4f}")
-    if input("¿Descargar? (s/n): ").strip().lower() != "s":
-        raise SystemExit("Descarga cancelada.")
-
-    # 4) Descargar con protección ante los timeouts 504 de Databento
-    try:
-        df = cliente.timeseries.get_range(**parametros).to_df()
-    except Exception as e:
-        raise RuntimeError(f"Falló la descarga del definition: {e}")
-
-    os.makedirs(CARPETA_CACHE, exist_ok=True)
-    df.to_parquet(ruta)
-    print(f"[guardado] {ruta} ({len(df)} filas)")
-    return df
+    datos.asegurar_descargas(pedidos_definicion([fecha]), f"definition SPXW {fecha}")
+    return pd.read_parquet(ruta_definicion(fecha))
 
 
 def filtrar_0dte(df: pd.DataFrame, fecha: str) -> pd.DataFrame:
@@ -68,8 +48,9 @@ def filtrar_0dte(df: pd.DataFrame, fecha: str) -> pd.DataFrame:
     objetivo = pd.Timestamp(fecha).date()
     df = df[df["fecha_venc"] == objetivo].copy()
 
-    # Hora REAL de liquidación de las SPXW: 16:00 Nueva York. La fijamos nosotros.
-    df["venc_ny"] = pd.Timestamp(f"{fecha} 16:00", tz=ZONA_NY)
+    # Hora REAL de liquidación de las SPXW: el cierre de ese día en Nueva York (16:00, o 13:00 en
+    # los cierres tempranos). La fijamos nosotros desde calendario.py.
+    df["venc_ny"] = pd.Timestamp(f"{fecha} {hora_cierre(fecha)}", tz=ZONA_NY)
     return df
 
 

@@ -3,56 +3,46 @@ precio.py — ¿Dónde estaba el SPX cada minuto?
 OPRA no tiene el índice: usamos el futuro ES menos la base (ES - SPX al cierre).
 """
 import os
-from datetime import datetime, timedelta
 
-import databento as db
 import pandas as pd
 
-from config import DATABENTO_KEY
+from src import datos
 from src.datos import precio_spx as cierre_spx   # única fuente del cierre del SPX
+from .calendario import ultima_barra
 from .constantes import CARPETA_CACHE, ZONA_NY
+
+
+def ruta_es(fecha: str) -> str:
+    return os.path.join(CARPETA_CACHE, f"es_1min_{fecha}.parquet")
+
+
+def parametros_es(fecha: str) -> dict:
+    fin = (pd.Timestamp(fecha) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+    return dict(dataset="GLBX.MDP3",       # CME Globex (futuros)
+                symbols="ES.v.0",          # continuo: el contrato con más volumen ese día
+                stype_in="continuous", schema="ohlcv-1m", start=fecha, end=fin)
+
+
+def horario_regular(df: pd.DataFrame, fecha: str) -> pd.DataFrame:
+    """El índice es ts_event (INICIO de cada barra) en UTC -> Nueva York. Horario regular: barras que
+    empiezan entre 09:30 y la última de la sesión (15:59 un día normal, 12:59 en un cierre temprano)."""
+    df = df.copy()
+    df.index = df.index.tz_convert(ZONA_NY)
+    return df.between_time("09:30", ultima_barra(fecha))[["open", "high", "low", "close", "volume"]]
+
+
+def pedidos_es(fechas) -> list:
+    """Pedidos para datos.asegurar_descargas."""
+    return [(ruta_es(f), parametros_es(f), lambda df, f=f: horario_regular(df, f)) for f in fechas]
 
 
 def descargar_es_1min(fecha: str) -> pd.DataFrame:
     """
     Barras de 1 minuto del ES (contrato más operado) para `fecha`, solo horario regular NY.
-    Caché en data/raw/es_1min_FECHA.parquet.
+    Caché en data/raw/es_1min_FECHA.parquet; si falta, costo + confirmación.
     """
-    ruta = os.path.join(CARPETA_CACHE, f"es_1min_{fecha}.parquet")
-    if os.path.exists(ruta):
-        print(f"[caché] leyendo {ruta}")
-        return pd.read_parquet(ruta)
-
-    fin = (datetime.strptime(fecha, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
-    cliente = db.Historical(DATABENTO_KEY)
-    parametros = dict(
-        dataset="GLBX.MDP3",       # CME Globex (futuros)
-        symbols="ES.v.0",          # continuo: el contrato con más volumen ese día
-        stype_in="continuous",
-        schema="ohlcv-1m",
-        start=fecha,
-        end=fin,
-    )
-
-    costo = cliente.metadata.get_cost(**parametros)
-    print(f"Costo estimado ES: ${costo:.4f}")
-    if input("¿Descargar? (s/n): ").strip().lower() != "s":
-        raise SystemExit("Descarga cancelada.")
-
-    try:
-        df = cliente.timeseries.get_range(**parametros).to_df()
-    except Exception as e:
-        raise RuntimeError(f"Falló la descarga del ES: {e}")
-
-    # El índice es ts_event (INICIO de cada barra) en UTC -> lo pasamos a Nueva York
-    df.index = df.index.tz_convert(ZONA_NY)
-    # Horario regular: barras que empiezan entre 09:30 y 15:59 (la de 15:59 cierra a las 16:00)
-    df = df.between_time("09:30", "15:59")[["open", "high", "low", "close", "volume"]]
-
-    os.makedirs(CARPETA_CACHE, exist_ok=True)
-    df.to_parquet(ruta)
-    print(f"[guardado] {ruta} ({len(df)} barras)")
-    return df
+    datos.asegurar_descargas(pedidos_es([fecha]), f"ES 1-min {fecha}")
+    return pd.read_parquet(ruta_es(fecha))
 
 
 def spx_1min(fecha: str) -> tuple[pd.DataFrame, float]:

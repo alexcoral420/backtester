@@ -24,10 +24,9 @@ import yfinance as yf
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.datos import _cliente
 from src.gex import HIPOTESIS_NULA_PUBLICO
 from src.odte.clasificacion import clasificar_trades
-from src.odte.trades import _parametros_tcbbo, ruta_cache_tcbbo
+from src.odte.trades import asegurar_tcbbo, ruta_cache_tcbbo
 from src.simbolos import parsear_simbolos
 from src.paquetes import VENTANA, combos_cp, resumen_combos
 from src.signo_walls import UMBRAL_COBERTURA, comparar, elegir_series, flujo_por_dia, pares_doi
@@ -67,27 +66,9 @@ if len(huecos):
     print(f"Sin veredicto por hueco de sesiones: archivo(s) {', '.join(huecos)}")
 
 # ---------------- costo y descarga con UNA confirmación ----------------
-pendientes = {d: s for d, s in por_dia.items() if not os.path.exists(ruta_cache_tcbbo(d, s, DESDE, HASTA))}
-if pendientes:
-    cliente = _cliente()
-    costos = {d: cliente.metadata.get_cost(**_parametros_tcbbo(d, s, DESDE, HASTA)) for d, s in pendientes.items()}
-    print("\nCosto tcbbo por día sin caché (get_cost, no descarga):")
-    for d, c in costos.items():
-        print(f"  {d}: {len(pendientes[d]):4d} series  ${c:.4f}")
-    total = sum(costos.values())
-    if args.solo_costo:
-        raise SystemExit(f"TOTAL ${total:.4f} ({len(pendientes)} días). Solo costo: no se descargó nada.")
-    print(f"TOTAL ${total:.4f}. ¿Descargar todo? (s/n): ", end="", flush=True)
-    if sys.stdin.readline().strip().lower() != "s":
-        raise SystemExit("Descarga cancelada.")
-    for d, s in pendientes.items():
-        df = cliente.timeseries.get_range(**_parametros_tcbbo(d, s, DESDE, HASTA)).to_df()
-        df.index = df.index.tz_convert("America/New_York")
-        df = df[["symbol", "price", "size", "bid_px_00", "ask_px_00", "bid_sz_00", "ask_sz_00"]]
-        df.to_parquet(ruta_cache_tcbbo(d, s, DESDE, HASTA))
-        print(f"[guardado] {d}: {len(df)} trades", file=sys.stderr)
-elif args.solo_costo:
-    raise SystemExit("Todo en caché: costo $0.")
+total = asegurar_tcbbo(por_dia, DESDE, HASTA, solo_costo=args.solo_costo)
+if args.solo_costo:
+    raise SystemExit(f"TOTAL ${total:.4f}. Solo costo: no se descargó nada.")
 
 # ---------------- medición ----------------
 tr = pd.concat([pd.read_parquet(ruta_cache_tcbbo(d, s, DESDE, HASTA)).assign(dia=pd.Timestamp(d))

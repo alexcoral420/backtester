@@ -37,6 +37,34 @@ def _confirmar(mensaje) -> bool:
     return sys.stdin.readline().strip().lower() == "s"
 
 
+def asegurar_descargas(pedidos, descripcion, solo_costo=False) -> float:
+    """Patrón único "caché primero, costo total, UNA confirmación" para descargas sueltas.
+    pedidos: lista de (ruta, parametros_get_range, procesar), donde procesar(df) -> df a guardar.
+    Los que ya están en `ruta` no cuestan nada. Devuelve el costo estimado de lo pendiente.
+    solo_costo=True: consulta el costo y vuelve, sin preguntar ni descargar."""
+    pendientes = [p for p in pedidos if not os.path.exists(p[0])]
+    if not pendientes:
+        _log(f"[caché] {descripcion}: {len(pedidos)} archivos, todos en caché ($0)")
+        return 0.0
+    cliente = _cliente()
+    costo = sum(cliente.metadata.get_cost(**params) for _, params, _ in pendientes)
+    if solo_costo:
+        _log(f"[costo] {descripcion}: {len(pendientes)} descargas pendientes, ${costo:.4f} (no se descargó nada)")
+        return costo
+    if not _confirmar(f"{descripcion}: {len(pendientes)} descargas sin caché, "
+                      f"costo estimado TOTAL ${costo:.4f}. ¿Descargar todo? (s/n): "):
+        raise SystemExit("Descarga cancelada.")
+    for ruta, params, procesar in pendientes:
+        try:
+            df = procesar(cliente.timeseries.get_range(**params).to_df())
+        except Exception as e:
+            raise RuntimeError(f"Falló la descarga de {ruta}: {e}")
+        os.makedirs(os.path.dirname(ruta), exist_ok=True)
+        df.to_parquet(ruta)
+        _log(f"[guardado] {ruta} ({len(df)} filas)")
+    return costo
+
+
 def _parametros_cadena(raiz, schema, fecha):
     fin = (pd.to_datetime(fecha) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
     return dict(dataset="OPRA.PILLAR", symbols=[f"{raiz}.OPT"], stype_in="parent",
