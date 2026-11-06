@@ -6,6 +6,11 @@ trabaja, qué riesgos tiene y qué mejoras se van aplicando. Se actualiza en cad
 - Revisión inicial: 2026-11-04, rama `spxw-raices`, commit `48d7433`.
 - Último cambio de código del módulo a esa fecha: `1171d50` (2026-10-17).
 
+> **Por dónde seguir (actualizado 2026-11-06, rama `odte-mejoras`, commit `a9027b0`, 253 tests):**
+> M1 y M2 cerradas (el signo no es identificable). En curso: **M4**, carga sin signo contra toques. Las dudas 1
+> y 3 están resueltas: hay que estratificar por redondez y medir con la base móvil. **Lo siguiente es la duda 2**
+> (inventario de días y costo); los pasos concretos están al final de la sección M4, en "Próxima sesión".
+
 ---
 
 ## 1. Archivos
@@ -432,6 +437,41 @@ antes de que salgan de esa ventana; el 09-23 y anteriores ya no se pueden recupe
 
 Con las tres resueltas, se escribe aquí el **diseño fijo** de M4 (carga, toque, resultado, ingenuos,
 episodios) ANTES de correr nada.
+
+#### Próxima sesión: por dónde seguir (anotado 2026-11-06)
+
+**Estado de los datos al 2026-11-06:**
+
+| Dato | Qué hay en caché | Para qué lo usa M4 |
+|---|---|---|
+| Fotos procesadas (`data/procesado/`) | 28 días, 09-24..11-03, sin 10-20 (Databento no tiene datos ese día) | carga: OI de la foto de d, gamma bruta de la foto de d−1 |
+| `statistics` crudo | hasta 11-04 (SPX y SPXW) | procesar fotos nuevas a $0 si también está el `ohlcv-1d` |
+| ES 1 min | 10 días: 09-29, 10-02, 10-05, 10-06, 10-12..10-16, 10-19 | el toque y su resultado |
+| SPX yfinance | 5m del 09-24 al 11-05; 1m del 10-08 al 11-05 | base móvil (necesita el 5m del día) |
+| tcbbo | — | **M4 no lo necesita** (es sin signo): no hay que pagar tcbbo |
+
+**Pasos, en orden** (explicar cada uno antes de ejecutarlo; las descargas las corre el usuario):
+1. **Duda 2, inventario y costo ($0).** Listar los días que tienen a la vez la foto de d, la foto de d−1, el
+   SPX 5m y el ES. Sacar el costo exacto del ES que falta con
+   `datos.asegurar_descargas(precio.pedidos_es(fechas), "ES 1-min", solo_costo=True)`. La estimación era
+   ~18 días por ~$0,10. Sin ES, el día no entra.
+2. **Decidir si se amplía la ventana.** Con ~27 días seguimos por debajo de los 40 deseados, y la duda 1 pide
+   días en los que el precio recorra **niveles distintos de la misma clase** (7700 vs 7800 vs 8000).
+   - Para adelante (11-04 en adelante): verificar si el `ohlcv-1d` del 11-04 está en caché (en ese caso la foto
+     sale a $0 con `walls_tiempo`). Cada día nuevo cuesta foto (~$0,66) + ES. Cachear su SPX de yfinance antes
+     de 60 días.
+   - Para atrás (antes del 09-24): **no se puede**, porque yfinance ya no tiene el 5m y sin él no hay base móvil.
+3. **Escribir aquí el diseño fijo de M4**, antes de correr nada. Puntos ya decididos:
+   - carga MEDIDA (`oi_total`, foto de d) y MODELO (`gex_bruto`, foto de d−1 sin las series que vencen en d);
+   - estratificar por clase de redondez (100 / 50 / 25) y usar la carga relativa dentro de la clase y del día;
+   - toques con `spx_1min(..., metodo_base="movil")` y la definición vigente `p25_t2_d1000_v30_m5`;
+   - episodio = día;
+   - ingenuos: frecuencia base, "múltiplo de 100" y distancia previa.
+
+   Falta fijar:
+   - cómo tratar las zonas repetidas entre días (rotación);
+   - si entra el wall con signo como predictor extra rotulado SUPUESTO. Se propuso y el usuario no lo confirmó.
+4. Recién entonces: el script de M4 (acumulador propio, separado de `odte_toques.csv`), los tests y la corrida.
 
 ---
 
