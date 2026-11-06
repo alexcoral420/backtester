@@ -112,7 +112,7 @@ honesto la muestra mediría el 10% del volumen como si fuera todo.
 | M3 | Descargas 0DTE con el patrón de `datos.py` | R5, R2 (R3 no) | **hecha** (2026-11-04) |
 | M1 | Veredicto del signo medido en `src`, con el % indeterminado al lado | R4, R1 | **cerrada** (2026-11-04): peor caso se mantiene |
 | M2 | De días sueltos a una muestra validada | evidencia anecdótica | **cerrada** (2026-11-04): sin evidencia, estructural |
-| M4 | ¿Un nivel con más carga (OI, sin signo) aguanta más? | la pregunta de M2 sin necesitar el signo | propuesta: 3 dudas pendientes (ver M4), luego diseño fijo |
+| M4 | ¿Un nivel con más carga (OI, sin signo) aguanta más? | la pregunta de M2 sin necesitar el signo | propuesta: dudas 1 (estratificar por redondez) y 3 (base móvil) resueltas; falta la 2, luego diseño fijo |
 
 ### M3: descargas alineadas con `datos.py` — HECHA
 
@@ -354,9 +354,81 @@ caché, y el error de la base ES − SPX frente a la tolerancia de 2 pts.
 
 | # | Duda | Cómo se resuelve | Costo | Estado |
 |---|---|---|---|---|
-| 1 | ¿El OI usado ya se conocía antes del toque? ¿La carga varía entre las zonas tocadas? | Leer en el `statistics` crudo la fecha y hora del registro de OI (stat_type 9): ¿se publica antes de las 9:30 de d? Y comparar la carga de las zonas tocadas: si todas tienen una carga parecida, la pregunta no puede discriminar | $0 (caché) | pendiente |
-| 3 | ¿La base ES − SPX tiene un error menor que la tolerancia del toque (2 pts)? | Comparar el high y el low diario del SPX estimado (ES − base) con los de yfinance | $0 | pendiente |
+| 1 | ¿El OI usado ya se conocía antes del toque? ¿La carga varía entre las zonas tocadas? | Leer en el `statistics` crudo la fecha y hora del registro de OI (stat_type 9): ¿se publica antes de las 9:30 de d? Y comparar la carga de las zonas tocadas: si todas tienen una carga parecida, la pregunta no puede discriminar | $0 (caché) | **resuelta** (2026-11-06): el OI se conoce antes; la carga varía pero ≈ redondez (ver abajo) |
+| 3 | ¿La base ES − SPX tiene un error menor que la tolerancia del toque (2 pts)? | Comparar el high y el low diario del SPX estimado (ES − base) con los de yfinance | $0 | **resuelta** (2026-11-06): con la base de cierre NO (40% de los minutos > 2 pts); con la base móvil sí (0,3%). Ver abajo |
 | 2 | ¿Cuántos días alcanzan? | Inventario: 28 fotos procesadas (09-24..11-03, sin 10-20), pero ES 1-min solo de 10 días. Faltan ~18 días de ES (~$0,10) → ~27 días, menos de los 40 deseados; más fotos ~$0,66/día | ~$0,10 (+ fotos opcionales); la descarga la corre el usuario | pendiente |
+
+#### Duda 1, resultado (2026-11-06, $0)
+
+**1a, tiempo del OI.** En los 58 `statistics` crudos del 09-24 al 11-04 (SPX y SPXW), todos los registros de
+OI (stat_type 9) llegan a las **06:30:00–06:30:04 ET del día d**: el 100% antes de las 9:30. Hay un solo
+registro por símbolo y ninguno se revisa durante el día. `ts_ref` viene vacío, así que el registro no dice a qué
+fecha se refiere; que sea el cierre de d−1 sigue apoyado en la regla de `inventario` (con tests). Conclusión:
+la carga se conoce tres horas antes de la apertura y antes de cualquier toque (cuentan desde las 10:00). El
+diseño no cambia.
+
+**1b, ¿varía la carga entre las zonas tocadas?** Cruce de los 16 toques de M2 con la foto de cada día: OI
+(MEDIDO) de la foto de d y gamma bruta (MODELO) de la foto de d−1, sin las series que vencen en d. El percentil
+se calcula entre las zonas de 25 a ±250 pts del cierre de d−1.
+
+| Clase de redondez | Toques | OI total de la zona | Percentil del OI | Resultado |
+|---|---|---|---|---|
+| múltiplo de 100 (7700, 7800) | 5 | 409k–505k | 90–100 | 1 aguantó / 4 cruzaron (7700 cruzó las 4) |
+| múltiplo de 50 (7650, 7750) | 5 | 230k–300k | 75–80 | 4 aguantaron / 1 cruzó |
+| múltiplo de 25 (7675, 7725) | 6 | 117k–156k | 35–45 | 3 / 3 |
+
+- La carga varía 4,3x entre los toques, pero **casi toda la variación es redondez**: dentro de cada clase
+  varía ~1,3x. Con esta muestra, "más carga" y "nivel más redondo" son la misma variable. Se confirma el
+  riesgo del ingenuo "múltiplo de 100".
+- Solo hay 6 zonas distintas (7700 y 7725 aparecen 4 veces cada una), y ningún toque cerca de 8000 (~2,2M).
+- Solo como descripción, sin valor de resultado (6 episodios, carga confundida con redondez): la mediana de
+  carga de los toques que cruzaron (345k) es mayor que la de los que aguantaron (253k).
+
+**Consecuencia para el diseño: hay que estratificar por redondez (100 / 50 / 25).** La pregunta pasa a ser
+"dentro de la misma clase, ¿la zona con más carga aguanta más?", y "¿la carga suma algo por encima del ingenuo
+múltiplo de 100?". Para eso la muestra necesita niveles de la misma clase con cargas distintas (7700 vs 7800 vs
+8000), lo que solo llega con más días en los que el precio recorra otras zonas: la duda 2 pesa más que antes.
+Los walls con signo pueden entrar como un predictor más, rotulado SUPUESTO, pero tampoco escapan de esto:
+también se concentran en los múltiplos de 100.
+
+#### Duda 3, resultado y arreglo (2026-11-06, $0)
+
+**Diagnóstico.** La base original es constante en el día: cierre del ES (barra 15:59) menos el cierre oficial
+del SPX. Contra el SPX de 5 min de yfinance, en los 10 días con ES, el error es un **sesgo casi constante por
+día** (−4,8 pts el 10-05, −4,3 el 10-14) y no ruido. Tiene dos causas:
+1. El cierre oficial incluye el salto de la subasta (hasta −2,55 pts frente al último precio intradía, 10-14).
+2. La base se mueve en el día (el 10-05 pasó de 50,9 a 57,0 entre las 9:35 y las 15:55).
+
+**Arreglo** (`precio.py`):
+- `cachear_spx_intradia` cachea el SPX de yfinance en `data/raw/spx_yf_{5m,1m}_FECHA.parquet`. Es gratis.
+  `leer_spx_yf` lee solo de caché y grita si falta el archivo o si la sesión está incompleta.
+- `base_movil` mide ES − SPX en el cierre de cada barra de 5 min y lo interpola a 1 min.
+- `spx_1min(fecha, metodo_base="movil")` usa la base nueva. **El valor por defecto sigue siendo `"cierre"`**: M2
+  y los scripts no cambian (stdout idéntico verificado en `ver_spx_1min`). M4 usa `"movil"`.
+
+Ya está cacheado: 5m del 09-24 al 11-05 (31 días) y 1m del 10-08 al 11-05 (21 días), todos completos (78 y
+390 barras). **Riesgo:** yfinance guarda solo 60 días de 5m y 30 de 1m. Los días nuevos hay que cachearlos
+antes de que salgan de esa ventana; el 09-23 y anteriores ya no se pueden recuperar.
+
+**Medición** (SPX estimado − SPX real, en pts):
+
+| Prueba | Base | Sesgo | Mediana \|err\| | p95 | Máx | > 1 pt | > 2 pts |
+|---|---|---|---|---|---|---|---|
+| Contra el SPX de 1 min (6 días; verdad independiente: la base móvil usa solo los puntos de 5 min) | cierre | −1,26 | 1,51 | 4,54 | 5,54 | 59,9% | **40,0%** |
+| | mediana del día (5m) | +0,06 | 0,30 | 1,07 | 4,83 | 6,5% | 0,6% |
+| | **móvil (5m)** | +0,05 | **0,20** | **0,91** | 4,10 | 3,9% | **0,3%** |
+| Validación cruzada en 5 min (10 días; base con la mitad de los puntos, error en la otra mitad) | cierre | −1,85 | 1,94 | 4,99 | 5,76 | 71,5% | 49,2% |
+| | mediana del día | 0,00 | 0,32 | 1,06 | 4,58 | 5,4% | 0,5% |
+| | **móvil** | −0,02 | **0,28** | 1,04 | 4,27 | 6,2% | 0,5% |
+
+- El cierre de 5m y el de 1m de yfinance coinciden exactamente en el mismo instante (máx 0,0000 en 6 días).
+- La base móvil quita el sesgo diario y deja el error en ~0,2 pts de mediana: unas 10 veces por debajo de la
+  tolerancia de 2 pts. Frente a la mediana del día gana poco, pero sigue la deriva (10-05).
+- **Efecto en los toques** (definición vigente, los 10 días con ES): de 24 toques, 5 quedan iguales, 12
+  cambian de hora, **4 cambian de resultado** (todos de "aguantó" a "cruzó": 10-05 7750, 10-14 7725 y 7750,
+  10-19 7725) y **3 desaparecen** (09-29 7650, 10-02 7700, 10-05 7725). La muestra de M2 estaba medida con
+  la base sesgada. No cambia el cierre de M2 (que se apoya en el signo), pero M4 tiene que medirse con la base
+  móvil.
 
 Con las tres resueltas, se escribe aquí el **diseño fijo** de M4 (carga, toque, resultado, ingenuos,
 episodios) ANTES de correr nada.
@@ -374,4 +446,5 @@ episodios) ANTES de correr nada.
 | 2026-11-04 | M2: `toques.py` (definición del toque y del resultado, flujo previo), `validar_0dte` (rango, 2 confirmaciones, tcbbo solo de strikes tocados), `analizar_odte`; definiciones y alternativas en la sección M2 | `0a31d46` | 18 tests nuevos; 1ª corrida $0: 16 toques en 6 días, 8 aguantó / 8 cruzó, **0 con signo medido** (13 indet. domina, 3 sin evidencia) |
 | 2026-11-04 | Cierre de M1: el criterio del peor caso se mantiene (pendiente resuelto con la razón \|neto\|/indet) | `50518ac` | 10-12: mediana 0,080, máx 0,18; 10-14: mediana 0,039, máx 0,56; 0 de 50 strikes > 100%, 1 > 50% |
 | 2026-11-04 | Cierre de M2: `ubicar_trades` (dónde se imprimió cada trade), descomposición del indet. y neto INFERIDO del interior en `flujo_previo`; sección "Por qué no hay signo" en `analizar_odte`; CSV regenerado ($0) | `8b1da5d` | 245 tests (11 nuevos); \|neto\|/indet mediana 0,035; indet. 44% en el medio exacto, 49% interior, 9% fuera; el signo cambia con la regla en 7 de 16; con interior inferido 1 de 16 con signo |
-| 2026-11-06 | Coherencia de ODTE.md: §3 (tipo de evidencia tras M2, `parametros_tcbbo` pública), fila "Signo" de M2 (la alternativa quedó descartada en el cierre de M1), hashes en la bitácora; sección M4 con el borrador del diseño y las 3 dudas pendientes (1 → 3 → 2) | (este commit) | sin código; M4 sigue en propuesta |
+| 2026-11-06 | Coherencia de ODTE.md: §3 (tipo de evidencia tras M2, `parametros_tcbbo` pública), fila "Signo" de M2 (la alternativa quedó descartada en el cierre de M1), hashes en la bitácora; sección M4 con el borrador del diseño y las 3 dudas pendientes (1 → 3 → 2) | `a63d13d` | sin código; M4 sigue en propuesta |
+| 2026-11-06 | M4, dudas 1 y 3: el OI se publica 06:30 ET de d; la carga de las zonas tocadas ≈ redondez (estratificar 100/50/25); `precio.py`: caché del SPX intradía de yfinance y `spx_1min(metodo_base="movil")` (por defecto sigue `"cierre"`) | (este commit) | 253 tests (8 nuevos); error vs SPX 1 min: > 2 pts del 40,0% al 0,3%, mediana \|err\| de 1,51 a 0,20; de 24 toques, 4 cambian de resultado y 3 desaparecen |
