@@ -77,11 +77,12 @@ aproximación" tiene tests desde M1 (`src/odte/cruce.py`).
 - Desde el 20-oct no hay nada de 0DTE.
 
 **Rol real del paquete:** es la capa de `tcbbo` de todo el proyecto. `b2_flujo`, `signo_walls`, `medir_niveles`,
-`ratio_flujo_oi` y `reverificar_walls` importan `clasificar_trades`, y varios también `_parametros_tcbbo`
-(una función privada).
+`ratio_flujo_oi` y `reverificar_walls` importan `clasificar_trades`, y varios también `parametros_tcbbo`
+(pública desde M3; antes era la privada `_parametros_tcbbo`).
 
-**Tipo de evidencia:** casos sueltos (29-sep, 2-oct, 14-oct). No hay muestra de varios días, ni episodios, ni
-comparación contra un predictor ingenuo como exige la validación del GEX.
+**Tipo de evidencia:** hasta M2 eran casos sueltos (29-sep, 2-oct, 14-oct). Desde M2 hay una muestra de varios
+días (16 toques en 6 días, episodios = días, contra dos ingenuos), pero con 0 toques con signo medido: la
+pregunta del signo quedó cerrada como "sin evidencia" (ver M2). La pregunta sin signo es M4.
 
 **Resultado de Fase B que también aplica aquí:** con la regla estricta, entre 85% y 96% del volumen es
 indeterminado y ~30% se imprime fuera del bid/ask (paquetes).
@@ -111,7 +112,7 @@ honesto la muestra mediría el 10% del volumen como si fuera todo.
 | M3 | Descargas 0DTE con el patrón de `datos.py` | R5, R2 (R3 no) | **hecha** (2026-11-04) |
 | M1 | Veredicto del signo medido en `src`, con el % indeterminado al lado | R4, R1 | **cerrada** (2026-11-04): peor caso se mantiene |
 | M2 | De días sueltos a una muestra validada | evidencia anecdótica | **cerrada** (2026-11-04): sin evidencia, estructural |
-| M4 | ¿Un nivel con más carga (OI, sin signo) aguanta más? | la pregunta de M2 sin necesitar el signo | propuesta: falta diseño fijo + 3 dudas |
+| M4 | ¿Un nivel con más carga (OI, sin signo) aguanta más? | la pregunta de M2 sin necesitar el signo | propuesta: 3 dudas pendientes (ver M4), luego diseño fijo |
 
 ### M3: descargas alineadas con `datos.py` — HECHA
 
@@ -261,7 +262,7 @@ Todo se mide con **cierres de barras de 1 min** del SPX estimado (ES − base). 
 | **Lado** | el lado de la barra anterior al toque (`arriba` = venía de arriba, el strike actúa como soporte) | — | separa soporte de techo |
 | **Resultado** | en las **30** barras desde la del toque (incluida), si algún cierre pasa el strike hacia el otro lado por **> 5 pts** → `cruzó`; si no → `aguantó`. Sesión que termina antes → `ventana corta` (fuera de la muestra) | ventana 15 / 60 min o hasta el cierre; margen 3 / 10 pts; margen proporcional al rango del día | define qué es "aguantar"; con margen chico, el ruido de 1 min cuenta como cruce |
 | **Flujo medido** | trades del strike (calls + puts) desde las 09:30 hasta **antes** del inicio de la barra del toque, regla estricta | solo los últimos 30/60 min antes del toque; calls y puts por separado contra la nula | el flujo posterior no puede explicar el toque (orden temporal, fundamento 6) |
-| **Signo** | `veredicto.signo_dealer`: \|neto\| ≥ 200 **y** \|neto\| > indeterminado (peor caso) | criterio menos exigente: \|neto\| > una fracción del indeterminado (pendiente de M1) | hoy es el cuello de botella: ver resultado |
+| **Signo** | `veredicto.signo_dealer`: \|neto\| ≥ 200 **y** \|neto\| > indeterminado (peor caso) | criterio menos exigente: \|neto\| > una fracción del indeterminado (descartado en el cierre de M1: el peor caso se mantiene) | hoy es el cuello de botella: ver resultado |
 | **Hipótesis** | dealer + (largo de gamma) → aguanta; dealer − (corto) → se cruza | — | |
 | **Ingenuos** | a) frecuencia base (siempre el resultado más común); b) recorrido: aguanta si `dist_previa` (\|SPX − K\| 30 min antes) > mediana | distancia a la apertura; rango de la primera hora | el signo tiene que ganarles en los MISMOS toques |
 | **Episodio** | el día (los toques de un día comparten régimen y flujo) | rachas del mismo signo medido dentro del día | tamaño honesto de la muestra = días |
@@ -330,6 +331,36 @@ caché, y el error de la base ES − SPX frente a la tolerancia de 2 pts.
 - Análisis por **episodios** y comparación contra un predictor ingenuo (la frecuencia base con la que aguanta el
   strike más cercano).
 
+### M4: ¿un nivel con más carga aguanta más? — PROPUESTA (sin código)
+
+**Pregunta:** sin signo. ¿Un nivel con más carga aguanta más el toque que uno con poca carga?
+
+**Borrador del diseño** (aún no es el diseño fijo):
+- **Carga** = OI de mediano plazo por zona de 25 puntos, de `walls.zonas_dia`: `oi_c` / `oi_p` / `oi_total`
+  (MEDIDO) y `gex_bruto` (MODELO, sin signo). Zonas `round(strike/25)*25`, los mismos múltiplos que usa
+  `toques.py`. **No** usar `gamma_walls`, porque depende del signo supuesto.
+- **Reacción** = `toques.py` con la definición vigente (`p25_t2_d1000_v30_m5`), sobre el ES 1-min del día d.
+- **Sin mirar al futuro:** de la foto procesada de d solo vale `open_interest` (= cierre de d−1, conocido en la
+  mañana de d). S, IV y gamma de esa foto son del cierre de d, así que la gamma bruta sale de la foto de d−1,
+  sin las series que vencen en d. Así ninguna de las dos cargas incluye la 0DTE (la foto de d ya la excluye
+  por T>0, `gex.py:91`).
+- Por qué se excluye la 0DTE: no porque su gamma sea ~0 (cerca del precio crece como 1/√T), sino porque su OI
+  de la mañana es chico (~1,5–3,5k por strike, frente a 50k–600k por zona) y la carga 0DTE se arma intradía.
+- **Riesgos que el diseño tiene que fijar:** un ingenuo "múltiplo de 100" (los números redondos podrían
+  aguantar sin importar la carga); usar la carga RELATIVA dentro del día; zonas repetidas entre días por
+  rotación (no son independientes); `pct_puts` solo como descriptivo.
+
+**Dudas pendientes** (resolver en este orden: 1 → 3 → 2; explicar antes de ejecutar):
+
+| # | Duda | Cómo se resuelve | Costo | Estado |
+|---|---|---|---|---|
+| 1 | ¿El OI usado ya se conocía antes del toque? ¿La carga varía entre las zonas tocadas? | Leer en el `statistics` crudo la fecha y hora del registro de OI (stat_type 9): ¿se publica antes de las 9:30 de d? Y comparar la carga de las zonas tocadas: si todas tienen una carga parecida, la pregunta no puede discriminar | $0 (caché) | pendiente |
+| 3 | ¿La base ES − SPX tiene un error menor que la tolerancia del toque (2 pts)? | Comparar el high y el low diario del SPX estimado (ES − base) con los de yfinance | $0 | pendiente |
+| 2 | ¿Cuántos días alcanzan? | Inventario: 28 fotos procesadas (09-24..11-03, sin 10-20), pero ES 1-min solo de 10 días. Faltan ~18 días de ES (~$0,10) → ~27 días, menos de los 40 deseados; más fotos ~$0,66/día | ~$0,10 (+ fotos opcionales); la descarga la corre el usuario | pendiente |
+
+Con las tres resueltas, se escribe aquí el **diseño fijo** de M4 (carga, toque, resultado, ingenuos,
+episodios) ANTES de correr nada.
+
 ---
 
 ## 5. Bitácora
@@ -337,9 +368,10 @@ caché, y el error de la base ES − SPX frente a la tolerancia de 2 pts.
 | Fecha | Cambio | Commit | Resultado / números |
 |---|---|---|---|
 | 2026-11-04 | Revisión inicial y creación de este archivo. Antes: `spxw-raices` fusionada a `main` (fast-forward a `48d7433`); el trabajo 0DTE sigue en la rama `odte-mejoras` | `2ca92b5` | 345 líneas en `src/odte`, 13 scripts, 6 tests; riesgos R1–R5; mejoras M1–M3 pendientes |
-| 2026-11-04 | M1: `veredicto.py` y `cruce.py` en `src/odte`; `estricto` obligatorio; `ver_strikes` y `antes_despues` con `%indet` | (este commit) | 193 tests (27 nuevos); netos idénticos; con el peor caso, 0 strikes con signo en 10-12 y 10-14 (antes 23 y 23) |
-| 2026-11-04 | M3: `asegurar_descargas` (datos), `asegurar_tcbbo`, `asegurar_odte`, `calendario`; 3 scripts sin descarga copiada; mensajes a stderr | (este commit) | 206 tests (13 nuevos); stdout idéntico en 8 scripts salvo `[caché]`; rango 0DTE = como mucho 2 confirmaciones (antes ~3 por día) |
-| 2026-11-04 | R3: caché tcbbo por símbolo (`plan_tcbbo`, `leer_tcbbo`, `.json` de pedidos); 4 scripts leen con `leer_tcbbo` | (este commit) | 216 tests (10 nuevos); stdout idéntico en 7 scripts; `signo_walls` pasa de 100% a 50% día-serie sin caché |
-| 2026-11-04 | M2: `toques.py` (definición del toque y del resultado, flujo previo), `validar_0dte` (rango, 2 confirmaciones, tcbbo solo de strikes tocados), `analizar_odte`; definiciones y alternativas en la sección M2 | (este commit) | 18 tests nuevos; 1ª corrida $0: 16 toques en 6 días, 8 aguantó / 8 cruzó, **0 con signo medido** (13 indet. domina, 3 sin evidencia) |
-| 2026-11-04 | Cierre de M1: el criterio del peor caso se mantiene (pendiente resuelto con la razón \|neto\|/indet) | (este commit) | 10-12: mediana 0,080, máx 0,18; 10-14: mediana 0,039, máx 0,56; 0 de 50 strikes > 100%, 1 > 50% |
-| 2026-11-04 | Cierre de M2: `ubicar_trades` (dónde se imprimió cada trade), descomposición del indet. y neto INFERIDO del interior en `flujo_previo`; sección "Por qué no hay signo" en `analizar_odte`; CSV regenerado ($0) | (este commit) | 245 tests (11 nuevos); \|neto\|/indet mediana 0,035; indet. 44% en el medio exacto, 49% interior, 9% fuera; el signo cambia con la regla en 7 de 16; con interior inferido 1 de 16 con signo |
+| 2026-11-04 | M1: `veredicto.py` y `cruce.py` en `src/odte`; `estricto` obligatorio; `ver_strikes` y `antes_despues` con `%indet` | `021973f` | 193 tests (27 nuevos); netos idénticos; con el peor caso, 0 strikes con signo en 10-12 y 10-14 (antes 23 y 23) |
+| 2026-11-04 | M3: `asegurar_descargas` (datos), `asegurar_tcbbo`, `asegurar_odte`, `calendario`; 3 scripts sin descarga copiada; mensajes a stderr | `55092e5` | 206 tests (13 nuevos); stdout idéntico en 8 scripts salvo `[caché]`; rango 0DTE = como mucho 2 confirmaciones (antes ~3 por día) |
+| 2026-11-04 | R3: caché tcbbo por símbolo (`plan_tcbbo`, `leer_tcbbo`, `.json` de pedidos); 4 scripts leen con `leer_tcbbo` | `f599886` | 216 tests (10 nuevos); stdout idéntico en 7 scripts; `signo_walls` pasa de 100% a 50% día-serie sin caché |
+| 2026-11-04 | M2: `toques.py` (definición del toque y del resultado, flujo previo), `validar_0dte` (rango, 2 confirmaciones, tcbbo solo de strikes tocados), `analizar_odte`; definiciones y alternativas en la sección M2 | `0a31d46` | 18 tests nuevos; 1ª corrida $0: 16 toques en 6 días, 8 aguantó / 8 cruzó, **0 con signo medido** (13 indet. domina, 3 sin evidencia) |
+| 2026-11-04 | Cierre de M1: el criterio del peor caso se mantiene (pendiente resuelto con la razón \|neto\|/indet) | `50518ac` | 10-12: mediana 0,080, máx 0,18; 10-14: mediana 0,039, máx 0,56; 0 de 50 strikes > 100%, 1 > 50% |
+| 2026-11-04 | Cierre de M2: `ubicar_trades` (dónde se imprimió cada trade), descomposición del indet. y neto INFERIDO del interior en `flujo_previo`; sección "Por qué no hay signo" en `analizar_odte`; CSV regenerado ($0) | `8b1da5d` | 245 tests (11 nuevos); \|neto\|/indet mediana 0,035; indet. 44% en el medio exacto, 49% interior, 9% fuera; el signo cambia con la regla en 7 de 16; con interior inferido 1 de 16 con signo |
+| 2026-11-06 | Coherencia de ODTE.md: §3 (tipo de evidencia tras M2, `parametros_tcbbo` pública), fila "Signo" de M2 (la alternativa quedó descartada en el cierre de M1), hashes en la bitácora; sección M4 con el borrador del diseño y las 3 dudas pendientes (1 → 3 → 2) | (este commit) | sin código; M4 sigue en propuesta |
