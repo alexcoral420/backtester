@@ -457,9 +457,9 @@ episodios) ANTES de correr nada.
    ~18 días por ~$0,10. Sin ES, el día no entra.
 2. **Decidir si se amplía la ventana.** Con ~27 días seguimos por debajo de los 40 deseados, y la duda 1 pide
    días en los que el precio recorra **niveles distintos de la misma clase** (7700 vs 7800 vs 8000).
-   - Para adelante (11-04 en adelante): verificar si el `ohlcv-1d` del 11-04 está en caché (en ese caso la foto
-     sale a $0 con `walls_tiempo`). Cada día nuevo cuesta foto (~$0,66) + ES. Cachear su SPX de yfinance antes
-     de 60 días.
+   - Para adelante: el 11-04 ya tiene `statistics` y `ohlcv-1d` (SPX y SPXW) en caché, así que su foto sale a
+     $0 con `walls_tiempo`. Desde el 11-05, cada día nuevo cuesta foto (~$0,66) + ES. Cachear su SPX de
+     yfinance antes de 60 días.
    - Para atrás (antes del 09-24): **no se puede**, porque yfinance ya no tiene el 5m y sin él no hay base móvil.
 3. **Escribir aquí el diseño fijo de M4**, antes de correr nada. Puntos ya decididos:
    - carga MEDIDA (`oi_total`, foto de d) y MODELO (`gex_bruto`, foto de d−1 sin las series que vencen en d);
