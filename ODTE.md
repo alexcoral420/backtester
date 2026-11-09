@@ -8,9 +8,8 @@ trabaja, qué riesgos tiene y qué mejoras se van aplicando. Se actualiza en cad
 
 > **Por dónde seguir (actualizado 2026-11-09, rama `odte-mejoras`, 253 tests):**
 > M1 y M2 cerradas (el signo no es identificable). En curso: **M4**, carga sin signo contra toques. Las tres
-> dudas están resueltas y el **diseño está fijo** (sección M4, "Diseño fijo de M4"). ES en caché: 21 de 30 días;
-> faltan 9 (10-27..10-30 y 11-02..11-06; la descarga del 2026-11-09 se cortó en el 10-26). **Lo siguiente:**
-> completar ese ES y después el script de M4, sus tests y la corrida ($0).
+> dudas están resueltas y el **diseño está fijo** (sección M4, "Diseño fijo de M4"). ES en caché: los 30 días.
+> **Lo siguiente:** el script de M4, sus tests y la corrida ($0).
 
 ---
 
@@ -118,7 +117,7 @@ honesto la muestra mediría el 10% del volumen como si fuera todo.
 | M3 | Descargas 0DTE con el patrón de `datos.py` | R5, R2 (R3 no) | **hecha** (2026-11-04) |
 | M1 | Veredicto del signo medido en `src`, con el % indeterminado al lado | R4, R1 | **cerrada** (2026-11-04): peor caso se mantiene |
 | M2 | De días sueltos a una muestra validada | evidencia anecdótica | **cerrada** (2026-11-04): sin evidencia, estructural |
-| M4 | ¿Un nivel con más carga (OI, sin signo) aguanta más? | la pregunta de M2 sin necesitar el signo | diseño fijo (2026-11-09): dudas 1–3 resueltas; falta completar el ES y escribir el script |
+| M4 | ¿Un nivel con más carga (OI, sin signo) aguanta más? | la pregunta de M2 sin necesitar el signo | diseño fijo (2026-11-09): dudas 1–3 resueltas, ES de los 30 días en caché; falta el script |
 
 ### M3: descargas alineadas con `datos.py` — HECHA
 
@@ -486,7 +485,7 @@ propia etiqueta, al lado de esta y sin reemplazarla.
 |---|---|---|
 | Fotos procesadas (`data/procesado/`) | 31 días, 09-24..11-06, sin 10-20 (Databento no tiene datos ese día). Actualizado 2026-11-09 | carga: OI de la foto de d, gamma bruta de la foto de d−1 |
 | `statistics` crudo | hasta 11-06 (SPX y SPXW) | procesar fotos nuevas a $0 si también está el `ohlcv-1d` |
-| ES 1 min | 21 días, 09-25..10-26 (sin 10-20). Faltan 9: 10-27..10-30 y 11-02..11-06 | el toque y su resultado |
+| ES 1 min | 30 días, 09-25..11-06 (sin 10-20); bajado el 2026-11-09 | el toque y su resultado |
 | SPX yfinance | 5m del 09-24 al 11-06; 1m del 10-08 al 11-06 | base móvil (necesita el 5m del día) |
 | tcbbo | — | **M4 no lo necesita** (es sin signo): no hay que pagar tcbbo |
 
@@ -527,4 +526,5 @@ propia etiqueta, al lado de esta y sin reemplazarla.
 | 2026-11-04 | Cierre de M2: `ubicar_trades` (dónde se imprimió cada trade), descomposición del indet. y neto INFERIDO del interior en `flujo_previo`; sección "Por qué no hay signo" en `analizar_odte`; CSV regenerado ($0) | `8b1da5d` | 245 tests (11 nuevos); \|neto\|/indet mediana 0,035; indet. 44% en el medio exacto, 49% interior, 9% fuera; el signo cambia con la regla en 7 de 16; con interior inferido 1 de 16 con signo |
 | 2026-11-06 | Coherencia de ODTE.md: §3 (tipo de evidencia tras M2, `parametros_tcbbo` pública), fila "Signo" de M2 (la alternativa quedó descartada en el cierre de M1), hashes en la bitácora; sección M4 con el borrador del diseño y las 3 dudas pendientes (1 → 3 → 2) | `a63d13d` | sin código; M4 sigue en propuesta |
 | 2026-11-06 | M4, dudas 1 y 3: el OI se publica 06:30 ET de d; la carga de las zonas tocadas ≈ redondez (estratificar 100/50/25); `precio.py`: caché del SPX intradía de yfinance y `spx_1min(metodo_base="movil")` (por defecto sigue `"cierre"`) | `a9027b0` | 253 tests (8 nuevos); error vs SPX 1 min: > 2 pts del 40,0% al 0,3%, mediana \|err\| de 1,51 a 0,20; de 24 toques, 4 cambian de resultado y 3 desaparecen |
-| 2026-11-09 | M4: duda 2 (inventario: 30 días posibles, ES de 20 días $0,0988 por `get_cost`), diseño fijo (carga relativa dentro de la clase de redondez, ingenuos, control por zona, wall SUPUESTO como predictor aparte, acumulador `odte_carga.csv`); decisión de no agregar el 0DTE a la cadena procesada (también en CLAUDE.md). Rama `m4-diseno` | (este commit) | sin código; ES en caché 21 de 30 días |
+| 2026-11-09 | M4: duda 2 (inventario: 30 días posibles, ES de 20 días $0,0988 por `get_cost`), diseño fijo (carga relativa dentro de la clase de redondez, ingenuos, control por zona, wall SUPUESTO como predictor aparte, acumulador `odte_carga.csv`); decisión de no agregar el 0DTE a la cadena procesada (también en CLAUDE.md). Rama `m4-diseno` | `9a94545` | sin código |
+| 2026-11-09 | ES de los 30 días en caché (la descarga terminó después del commit anterior) | (este commit) | muestra de M4 completa: 30 días, $0 de aquí en adelante |
