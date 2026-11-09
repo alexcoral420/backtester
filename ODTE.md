@@ -6,10 +6,11 @@ trabaja, qué riesgos tiene y qué mejoras se van aplicando. Se actualiza en cad
 - Revisión inicial: 2026-11-04, rama `spxw-raices`, commit `48d7433`.
 - Último cambio de código del módulo a esa fecha: `1171d50` (2026-10-17).
 
-> **Por dónde seguir (actualizado 2026-11-06, rama `odte-mejoras`, commit `a9027b0`, 253 tests):**
-> M1 y M2 cerradas (el signo no es identificable). En curso: **M4**, carga sin signo contra toques. Las dudas 1
-> y 3 están resueltas: hay que estratificar por redondez y medir con la base móvil. **Lo siguiente es la duda 2**
-> (inventario de días y costo); los pasos concretos están al final de la sección M4, en "Próxima sesión".
+> **Por dónde seguir (actualizado 2026-11-09, rama `odte-mejoras`, 253 tests):**
+> M1 y M2 cerradas (el signo no es identificable). En curso: **M4**, carga sin signo contra toques. Las tres
+> dudas están resueltas y el **diseño está fijo** (sección M4, "Diseño fijo de M4"). ES en caché: 21 de 30 días;
+> faltan 9 (10-27..10-30 y 11-02..11-06; la descarga del 2026-11-09 se cortó en el 10-26). **Lo siguiente:**
+> completar ese ES y después el script de M4, sus tests y la corrida ($0).
 
 ---
 
@@ -117,7 +118,7 @@ honesto la muestra mediría el 10% del volumen como si fuera todo.
 | M3 | Descargas 0DTE con el patrón de `datos.py` | R5, R2 (R3 no) | **hecha** (2026-11-04) |
 | M1 | Veredicto del signo medido en `src`, con el % indeterminado al lado | R4, R1 | **cerrada** (2026-11-04): peor caso se mantiene |
 | M2 | De días sueltos a una muestra validada | evidencia anecdótica | **cerrada** (2026-11-04): sin evidencia, estructural |
-| M4 | ¿Un nivel con más carga (OI, sin signo) aguanta más? | la pregunta de M2 sin necesitar el signo | propuesta: dudas 1 (estratificar por redondez) y 3 (base móvil) resueltas; falta la 2, luego diseño fijo |
+| M4 | ¿Un nivel con más carga (OI, sin signo) aguanta más? | la pregunta de M2 sin necesitar el signo | diseño fijo (2026-11-09): dudas 1–3 resueltas; falta completar el ES y escribir el script |
 
 ### M3: descargas alineadas con `datos.py` — HECHA
 
@@ -351,6 +352,10 @@ caché, y el error de la base ES − SPX frente a la tolerancia de 2 pts.
   por T>0, `gex.py:91`).
 - Por qué se excluye la 0DTE: no porque su gamma sea ~0 (cerca del precio crece como 1/√T), sino porque su OI
   de la mañana es chico (~1,5–3,5k por strike, frente a 50k–600k por zona) y la carga 0DTE se arma intradía.
+  **Decisión del usuario (2026-11-09): el 0DTE NO se agrega a la cadena procesada.** Se midió con la caída
+  del 11-05. Al cierre del 11-04, las series que vencían el 11-05 eran el 0,7% del OI y el 2% de la gamma
+  bruta (MODELO). El OI 0DTE publicado a las 06:30 del 11-05 fue de 371k contratos en 518 series: 5–17k por
+  zona de 25, frente a cargas de 65k–545k. Aporta muy poco; no volver a proponerlo sin evidencia nueva.
 - **Riesgos que el diseño tiene que fijar:** un ingenuo "múltiplo de 100" (los números redondos podrían
   aguantar sin importar la carga); usar la carga RELATIVA dentro del día; zonas repetidas entre días por
   rotación (no son independientes); `pct_puts` solo como descriptivo.
@@ -361,7 +366,7 @@ caché, y el error de la base ES − SPX frente a la tolerancia de 2 pts.
 |---|---|---|---|---|
 | 1 | ¿El OI usado ya se conocía antes del toque? ¿La carga varía entre las zonas tocadas? | Leer en el `statistics` crudo la fecha y hora del registro de OI (stat_type 9): ¿se publica antes de las 9:30 de d? Y comparar la carga de las zonas tocadas: si todas tienen una carga parecida, la pregunta no puede discriminar | $0 (caché) | **resuelta** (2026-11-06): el OI se conoce antes; la carga varía pero ≈ redondez (ver abajo) |
 | 3 | ¿La base ES − SPX tiene un error menor que la tolerancia del toque (2 pts)? | Comparar el high y el low diario del SPX estimado (ES − base) con los de yfinance | $0 | **resuelta** (2026-11-06): con la base de cierre NO (40% de los minutos > 2 pts); con la base móvil sí (0,3%). Ver abajo |
-| 2 | ¿Cuántos días alcanzan? | Inventario: 28 fotos procesadas (09-24..11-03, sin 10-20), pero ES 1-min solo de 10 días. Faltan ~18 días de ES (~$0,10) → ~27 días, menos de los 40 deseados; más fotos ~$0,66/día | ~$0,10 (+ fotos opcionales); la descarga la corre el usuario | pendiente |
+| 2 | ¿Cuántos días alcanzan? | Inventario: días con foto de d, foto de d−1, SPX 5m y ES 1-min | $0,0988 (ES de 20 días, `get_cost`); la descarga la corre el usuario | **resuelta** (2026-11-09): 30 días posibles (ver abajo) |
 
 #### Duda 1, resultado (2026-11-06, $0)
 
@@ -435,8 +440,43 @@ antes de que salgan de esa ventana; el 09-23 y anteriores ya no se pueden recupe
   la base sesgada. No cambia el cierre de M2 (que se apoya en el signo), pero M4 tiene que medirse con la base
   móvil.
 
-Con las tres resueltas, se escribe aquí el **diseño fijo** de M4 (carga, toque, resultado, ingenuos,
-episodios) ANTES de correr nada.
+#### Duda 2, resultado (2026-11-09, $0)
+
+Fotos procesadas: 31 días (09-24..11-06, sin 10-20). Se descartan el 09-24, que no tiene foto de d−1, y
+ningún otro: el 11-06 tenía el SPX de yfinance pendiente y se cacheó gratis (78 y 390 barras, completos).
+- **30 días** tienen foto de d, foto de d−1 y SPX 5m (09-25..11-06, sin 10-20).
+- 10 ya tienen ES. Faltan 20, que cuestan **$0,0988** según `get_cost` (cotizado con `solo_costo=True`, sin
+  descargar): 09-25, 09-28, 09-30, 10-01, 10-07, 10-08, 10-09, 10-21..10-23, 10-26..10-30 y 11-02..11-06.
+- Siguen siendo menos de los 40 deseados. Cada día nuevo cuesta foto (~$0,66) + ES (~$0,005). Para atrás
+  no se puede ampliar: yfinance ya no tiene el 5m.
+- **Caso especial 10-21:** su foto de d−1 es la del 10-19 (el 10-20 falta en Databento). El OI (foto del
+  10-21) está bien; la gamma bruta (MODELO) sale de una foto dos sesiones vieja. Hay que marcarlo o excluirlo.
+- La ventana incluye la caída del 11-05 (−335 pts) y el rango 7.350–7.820: aparecen niveles de la misma clase
+  con cargas distintas (7400 vs 7500 vs 7600 vs 7700), que es lo que pedía la duda 1.
+
+#### Diseño fijo de M4 (2026-11-09, antes de correr nada)
+
+Con las tres dudas resueltas y las dos decisiones pendientes tomadas por el usuario (según la recomendación),
+este es el diseño. Cambiarlo después de ver resultados es elegir la respuesta: cualquier variante va con su
+propia etiqueta, al lado de esta y sin reemplazarla.
+
+| Concepto | Definición fija |
+|---|---|
+| **Muestra** | Días con foto de d, foto de d−1, SPX 5m y ES 1-min: hasta 30 (09-25..11-06, sin 10-20). El **10-21** lleva `d1_vieja=True` (su foto de d−1 es la del 10-19) y se reporta con y sin él |
+| **Zona** | `round(strike/25)*25`, los mismos múltiplos que usa `toques.py` |
+| **Clase de redondez** | `100` / `50` / `25` (múltiplo de 100; de 50 pero no de 100; el resto) |
+| **Carga MEDIDA** | `oi_total` (y `oi_c`, `oi_p`) de la zona en la foto de d (`walls.zonas_dia`): OI al cierre de d−1, publicado a las 06:30 de d |
+| **Carga MODELO** | `gex_bruto` de la zona en la foto de d−1, **sin** las series que vencen en d. Sin signo |
+| **Carga relativa** | percentil de la carga de la zona **dentro de su clase**, entre las zonas a ±250 pts del cierre de d−1, ese día. La pregunta se hace con esta, no con la carga absoluta |
+| **Toque y resultado** | `toques.py`, definición vigente `p25_t2_d1000_v30_m5`, sobre `spx_1min(fecha, metodo_base="movil")`. `ventana corta` queda fuera de la muestra |
+| **Pregunta principal** | dentro de cada clase, ¿los toques en zonas de carga relativa alta (≥ mediana de la clase) aguantan más que los de carga baja? Se reporta la tasa de `aguantó` por clase × mitad de carga, con n de toques, días y zonas en cada celda |
+| **Ingenuos** (la carga tiene que ganarles en los MISMOS toques) | a) frecuencia base; b) "múltiplo de 100 aguanta"; c) distancia previa (\|SPX − K\| 30 min antes del toque > mediana) |
+| **Episodio** | el día. Tamaño honesto = días con al menos un toque en la celda. Con menos de 10 días en una celda: "NO es evidencia" |
+| **Control por zona** (decisión 1) | las mismas zonas se repiten entre días por rotación. Además del análisis por día: a) cada zona vota una vez (tasa de aguante por zona, después promedio); b) dejar una zona fuera: se quita cada zona y se recalcula. Si el resultado cambia de signo al quitar una zona, se reporta como "depende de la zona X". Siempre se informa el nº de zonas distintas |
+| **Wall SUPUESTO** (decisión 2) | columna `gex_sup` = GEX neto de la zona en la foto de d−1 (hipótesis nula; misma exclusión de lo que vence en d) y `es_wall_sup` = la zona está entre las top-5 por \|gex\| ese día. Es un predictor **más**, evaluado aparte contra los mismos ingenuos y rotulado SUPUESTO en el CSV y en la salida. **Nunca** se combina con la carga en un solo número |
+| **`pct_puts`** | solo descriptivo |
+| **Acumulador** | `data/validacion/odte_carga.csv`, separado de `odte_toques.csv` y de los CSV de GEX. Una fila por toque, con columna `definicion`. Cada columna clasificada como medido / modelo / supuesto (como `walls.clase`), con un test que lo exija |
+| **Costo** | $0: solo fotos procesadas, ES, SPX de yfinance y `toques.py`. **Sin tcbbo** |
 
 #### Próxima sesión: por dónde seguir (anotado 2026-11-06)
 
@@ -444,10 +484,10 @@ episodios) ANTES de correr nada.
 
 | Dato | Qué hay en caché | Para qué lo usa M4 |
 |---|---|---|
-| Fotos procesadas (`data/procesado/`) | 28 días, 09-24..11-03, sin 10-20 (Databento no tiene datos ese día) | carga: OI de la foto de d, gamma bruta de la foto de d−1 |
-| `statistics` crudo | hasta 11-04 (SPX y SPXW) | procesar fotos nuevas a $0 si también está el `ohlcv-1d` |
-| ES 1 min | 10 días: 09-29, 10-02, 10-05, 10-06, 10-12..10-16, 10-19 | el toque y su resultado |
-| SPX yfinance | 5m del 09-24 al 11-05; 1m del 10-08 al 11-05 | base móvil (necesita el 5m del día) |
+| Fotos procesadas (`data/procesado/`) | 31 días, 09-24..11-06, sin 10-20 (Databento no tiene datos ese día). Actualizado 2026-11-09 | carga: OI de la foto de d, gamma bruta de la foto de d−1 |
+| `statistics` crudo | hasta 11-06 (SPX y SPXW) | procesar fotos nuevas a $0 si también está el `ohlcv-1d` |
+| ES 1 min | 21 días, 09-25..10-26 (sin 10-20). Faltan 9: 10-27..10-30 y 11-02..11-06 | el toque y su resultado |
+| SPX yfinance | 5m del 09-24 al 11-06; 1m del 10-08 al 11-06 | base móvil (necesita el 5m del día) |
 | tcbbo | — | **M4 no lo necesita** (es sin signo): no hay que pagar tcbbo |
 
 **Pasos, en orden** (explicar cada uno antes de ejecutarlo; las descargas las corre el usuario):
@@ -468,9 +508,8 @@ episodios) ANTES de correr nada.
    - episodio = día;
    - ingenuos: frecuencia base, "múltiplo de 100" y distancia previa.
 
-   Falta fijar:
-   - cómo tratar las zonas repetidas entre días (rotación);
-   - si entra el wall con signo como predictor extra rotulado SUPUESTO. Se propuso y el usuario no lo confirmó.
+   Decidido el 2026-11-09 (ver "Diseño fijo de M4"): las zonas repetidas se controlan con un voto por zona y
+   dejando una zona fuera; el wall con signo entra como predictor aparte, rotulado SUPUESTO.
 4. Recién entonces: el script de M4 (acumulador propio, separado de `odte_toques.csv`), los tests y la corrida.
 
 ---
@@ -487,4 +526,5 @@ episodios) ANTES de correr nada.
 | 2026-11-04 | Cierre de M1: el criterio del peor caso se mantiene (pendiente resuelto con la razón \|neto\|/indet) | `50518ac` | 10-12: mediana 0,080, máx 0,18; 10-14: mediana 0,039, máx 0,56; 0 de 50 strikes > 100%, 1 > 50% |
 | 2026-11-04 | Cierre de M2: `ubicar_trades` (dónde se imprimió cada trade), descomposición del indet. y neto INFERIDO del interior en `flujo_previo`; sección "Por qué no hay signo" en `analizar_odte`; CSV regenerado ($0) | `8b1da5d` | 245 tests (11 nuevos); \|neto\|/indet mediana 0,035; indet. 44% en el medio exacto, 49% interior, 9% fuera; el signo cambia con la regla en 7 de 16; con interior inferido 1 de 16 con signo |
 | 2026-11-06 | Coherencia de ODTE.md: §3 (tipo de evidencia tras M2, `parametros_tcbbo` pública), fila "Signo" de M2 (la alternativa quedó descartada en el cierre de M1), hashes en la bitácora; sección M4 con el borrador del diseño y las 3 dudas pendientes (1 → 3 → 2) | `a63d13d` | sin código; M4 sigue en propuesta |
-| 2026-11-06 | M4, dudas 1 y 3: el OI se publica 06:30 ET de d; la carga de las zonas tocadas ≈ redondez (estratificar 100/50/25); `precio.py`: caché del SPX intradía de yfinance y `spx_1min(metodo_base="movil")` (por defecto sigue `"cierre"`) | (este commit) | 253 tests (8 nuevos); error vs SPX 1 min: > 2 pts del 40,0% al 0,3%, mediana \|err\| de 1,51 a 0,20; de 24 toques, 4 cambian de resultado y 3 desaparecen |
+| 2026-11-06 | M4, dudas 1 y 3: el OI se publica 06:30 ET de d; la carga de las zonas tocadas ≈ redondez (estratificar 100/50/25); `precio.py`: caché del SPX intradía de yfinance y `spx_1min(metodo_base="movil")` (por defecto sigue `"cierre"`) | `a9027b0` | 253 tests (8 nuevos); error vs SPX 1 min: > 2 pts del 40,0% al 0,3%, mediana \|err\| de 1,51 a 0,20; de 24 toques, 4 cambian de resultado y 3 desaparecen |
+| 2026-11-09 | M4: duda 2 (inventario: 30 días posibles, ES de 20 días $0,0988 por `get_cost`), diseño fijo (carga relativa dentro de la clase de redondez, ingenuos, control por zona, wall SUPUESTO como predictor aparte, acumulador `odte_carga.csv`); decisión de no agregar el 0DTE a la cadena procesada (también en CLAUDE.md). Rama `m4-diseno` | (este commit) | sin código; ES en caché 21 de 30 días |
