@@ -6,12 +6,11 @@ trabaja, qué riesgos tiene y qué mejoras se van aplicando. Se actualiza en cad
 - Revisión inicial: 2026-11-04, rama `spxw-raices`, commit `48d7433`.
 - Último cambio de código del módulo a esa fecha: `1171d50` (2026-10-17).
 
-> **Por dónde seguir (actualizado 2026-11-09, rama `odte-mejoras`, 253 tests):**
-> M1 y M2 cerradas (el signo no es identificable). En curso: **M4**, carga sin signo contra toques. Las tres
-> dudas están resueltas, el diseño está fijo y hay dos corridas (2026-11-09), las dos **SIN EVIDENCIA**:
-> `radio250` (71 toques en 30 días; carga 45% contra 66% de la base; el 77% en la mitad "alta") y la variante
-> `tocadas` (solo 20 toques en 6 días con comparación; el signo se invierte, −4). El límite es la muestra.
-> **Lo siguiente:** el usuario decide si cierra M4 o amplía días (~$0,67 por día).
+> **Por dónde seguir (actualizado 2026-11-09, rama `m4-diseno`, 273 tests):**
+> **M1, M2 y M4 cerradas.** M1 y M2: el signo del dealer no es identificable. M4: la carga sin signo (OI) no
+> predice si un nivel aguanta el toque. Cerrada **SIN EVIDENCIA** por decisión del usuario (2026-11-09), con dos
+> corridas: `radio250` (carga 45% contra 66% de la base) y `tocadas` (20 toques en 6 días, signo invertido).
+> No hay mejora abierta en el módulo. Antes de reabrir M4, leer "Cierre de M4" (sección M4).
 
 ---
 
@@ -111,7 +110,7 @@ indeterminado y ~30% se imprime fuera del bid/ask (paquetes).
 Orden aplicado: **M1 → M3** (M1 se hizo primero por un malentendido; la recomendación era M3 → M1). No quedó
 inconsistente: M1 no descarga nada y M3 no toca el veredicto; el único cruce es que `corte_strike` recibe la
 sesión de `spx_1min`, que desde M3 termina en la última barra real del día (12:59 en un cierre temprano).
-Después de M3 se resolvió **R3** (caché por símbolo), porque M2 necesita rangos. Después, **M2** (cerrada: sin evidencia, estructural). Siguiente: **M4**. Orden recomendado original: **M3 → M1 → M2**. Sin la descarga de rango no se puede armar la muestra, y sin un veredicto
+Después de M3 se resolvió **R3** (caché por símbolo), porque M2 necesita rangos. Después, **M2** (cerrada: sin evidencia, estructural). Después, **M4** (cerrada: sin evidencia, 2026-11-09). Orden recomendado original: **M3 → M1 → M2**. Sin la descarga de rango no se puede armar la muestra, y sin un veredicto
 honesto la muestra mediría el 10% del volumen como si fuera todo.
 
 | Id | Mejora | Resuelve | Estado |
@@ -119,7 +118,7 @@ honesto la muestra mediría el 10% del volumen como si fuera todo.
 | M3 | Descargas 0DTE con el patrón de `datos.py` | R5, R2 (R3 no) | **hecha** (2026-11-04) |
 | M1 | Veredicto del signo medido en `src`, con el % indeterminado al lado | R4, R1 | **cerrada** (2026-11-04): peor caso se mantiene |
 | M2 | De días sueltos a una muestra validada | evidencia anecdótica | **cerrada** (2026-11-04): sin evidencia, estructural |
-| M4 | ¿Un nivel con más carga (OI, sin signo) aguanta más? | la pregunta de M2 sin necesitar el signo | 2 corridas (2026-11-09), `radio250` y `tocadas`: **sin evidencia**; cerrar o ampliar días, a decidir |
+| M4 | ¿Un nivel con más carga (OI, sin signo) aguanta más? | la pregunta de M2 sin necesitar el signo **cerrada** (2026-11-09): sin evidencia en las dos referencias (`radio250`, `tocadas`) |
 
 ### M3: descargas alineadas con `datos.py` — HECHA
 
@@ -338,7 +337,10 @@ caché, y el error de la base ES − SPX frente a la tolerancia de 2 pts.
 - Análisis por **episodios** y comparación contra un predictor ingenuo (la frecuencia base con la que aguanta el
   strike más cercano).
 
-### M4: ¿un nivel con más carga aguanta más? — PROPUESTA (sin código)
+### M4: ¿un nivel con más carga aguanta más? — CERRADA: sin evidencia (2026-11-09)
+
+(El borrador, las dudas, el diseño fijo y las dos corridas quedan abajo, en el orden en que se hicieron. El
+cierre está en "Cierre de M4", después de la variante.)
 
 **Pregunta:** sin signo. ¿Un nivel con más carga aguanta más el toque que uno con poca carga?
 
@@ -546,7 +548,39 @@ Lectura:
   muestra: con un primer toque por zona y día, las comparaciones dentro de la clase son pocas. Ampliarla cuesta
   ~$0,67 por día nuevo (foto + ES), y harían falta muchos días: unos 6 días útiles salieron de 30.
 
-#### Próxima sesión: por dónde seguir (anotado 2026-11-06)
+#### Cierre de M4: SIN EVIDENCIA (2026-11-09, decisión del usuario)
+
+**Respuesta:** con 30 días (09-25..11-06), la carga sin signo de una zona (OI MEDIDO, gamma bruta MODELO) **no
+predice** si el nivel aguanta el toque.
+- `radio250`: la carga acierta 45% contra 66% de la frecuencia base.
+- `tocadas`: 45% contra 80%.
+- La diferencia alta − baja de `radio250` (+11) se explica por comparar zonas cercanas contra lejanas: al
+  comparar toque contra toque se invierte (−4), aunque sin evidencia.
+- El wall con signo (SUPUESTO) tampoco le gana a la frecuencia base (59% / 65%).
+
+**Por qué se cierra y no se amplía:** el límite es la muestra, no la referencia. Con un primer toque por zona y
+día, la mayoría de los días el precio toca una sola zona por clase, y de 30 días salieron 6 con comparación
+dentro de la clase. Llegar a 10 días por celda pediría del orden de 50–100 días más, a ~$0,67 por día (foto + ES).
+
+**Qué queda (todo a $0, en caché):**
+- `carga.py`, `validar_carga` y `analizar_carga`, con 20 tests.
+- El acumulador `data/validacion/odte_carga.csv`, con las dos referencias.
+
+Si llegan días nuevos por otro motivo (p. ej. `walls_tiempo`), se pueden sumar con el mismo diseño y sin
+cambiarlo. Las dos etiquetas siguen vigentes.
+
+**Qué no hacer:**
+- Pagar fotos solo para ampliar M4.
+- Relajar el criterio de evidencia (10 días por celda).
+- Cambiar la referencia o la definición del toque para buscar un resultado. Cualquier variante nueva va con
+  su etiqueta, al lado de estas.
+
+**Coherencia con el resto del proyecto:** es el tercer "sin evidencia" del módulo. M1 y M2 mostraron que el signo
+no es identificable; M4, que la carga sin signo tampoco anticipa el toque en esta muestra. Coincide con el caso
+del 11-05: las zonas más cargadas (7700, 7650, 7600) no frenaron la caída, y las que actuaron (7500, 7400) eran
+números redondos.
+
+#### Próxima sesión: por dónde seguir (anotado 2026-11-06; superado por el cierre de M4)
 
 **Estado de los datos al 2026-11-06:**
 
@@ -598,4 +632,5 @@ Lectura:
 | 2026-11-09 | M4: duda 2 (inventario: 30 días posibles, ES de 20 días $0,0988 por `get_cost`), diseño fijo (carga relativa dentro de la clase de redondez, ingenuos, control por zona, wall SUPUESTO como predictor aparte, acumulador `odte_carga.csv`); decisión de no agregar el 0DTE a la cadena procesada (también en CLAUDE.md). Rama `m4-diseno` | `9a94545` | sin código |
 | 2026-11-09 | ES de los 30 días en caché (la descarga terminó después del commit anterior) | (este commit) | muestra de M4 completa: 30 días, $0 de aquí en adelante |
 | 2026-11-09 | M4, primera corrida: `carga.py` (carga por zona sin mirar al futuro, percentil dentro de la clase, wall SUPUESTO aparte, contrato de columnas, celdas, voto por zona, dejar una fuera, predictores), `validar_carga` (solo caché, acumula en `odte_carga.csv`), `analizar_carga` | `d2b1283` | 270 tests (17 nuevos); 71 toques en 30 días, 19 zonas; aguante base 34%; alta − baja +11,4 (OI) / +15,4 (bruto), celdas "baja" de 2–5 días; carga 45% de acierto contra 66% de la base: **sin evidencia**; 77% de los toques en la mitad alta (defecto de la referencia ±250) |
-| 2026-11-09 | M4, variante `tocadas`: `carga.relativa_entre_tocadas`, columna `referencia` en el acumulador (las filas viejas quedan como `radio250`), `validar_carga --referencia`, `analizar_carga` por (definición, referencia) | (sin commit) | 273 tests (3 nuevos); `radio250` idéntica salvo la cabecera; `tocadas`: 20 toques en 6 días (51 sin comparación), alta − baja −4,0, depende de zonas sueltas, 0 celdas con evidencia; carga 45% contra 80% de la base: **sin evidencia** |
+| 2026-11-09 | M4, variante `tocadas`: `carga.relativa_entre_tocadas`, columna `referencia` en el acumulador (las filas viejas quedan como `radio250`), `validar_carga --referencia`, `analizar_carga` por (definición, referencia) | `c5828aa` | 273 tests (3 nuevos); `radio250` idéntica salvo la cabecera; `tocadas`: 20 toques en 6 días (51 sin comparación), alta − baja −4,0, depende de zonas sueltas, 0 celdas con evidencia; carga 45% contra 80% de la base: **sin evidencia** |
+| 2026-11-09 | **Cierre de M4: sin evidencia** (decisión del usuario). Sección "Cierre de M4" (respuesta, por qué no se amplía, qué queda, qué no hacer); estado y tabla de mejoras actualizados | (este commit) | sin código; radio250 45% vs 66% de la base; tocadas 45% vs 80% (20 toques en 6 días); el límite es la muestra (~50–100 días más para 10 días por celda) |
