@@ -8,8 +8,10 @@ trabaja, qué riesgos tiene y qué mejoras se van aplicando. Se actualiza en cad
 
 > **Por dónde seguir (actualizado 2026-11-09, rama `odte-mejoras`, 253 tests):**
 > M1 y M2 cerradas (el signo no es identificable). En curso: **M4**, carga sin signo contra toques. Las tres
-> dudas están resueltas y el **diseño está fijo** (sección M4, "Diseño fijo de M4"). ES en caché: los 30 días.
-> **Lo siguiente:** el script de M4, sus tests y la corrida ($0).
+> dudas están resueltas, el diseño está fijo y la **primera corrida está hecha** (2026-11-09; 71 toques, 30 días):
+> **SIN EVIDENCIA**. La carga acierta 45% contra 66% de la frecuencia base, y el 77% de los toques cae en la
+> mitad "alta" (defecto de la referencia de ±250 pts). **Lo siguiente:** el usuario decide si se corre una
+> variante de la referencia, con etiqueta propia (sección M4, "Primera corrida").
 
 ---
 
@@ -117,7 +119,7 @@ honesto la muestra mediría el 10% del volumen como si fuera todo.
 | M3 | Descargas 0DTE con el patrón de `datos.py` | R5, R2 (R3 no) | **hecha** (2026-11-04) |
 | M1 | Veredicto del signo medido en `src`, con el % indeterminado al lado | R4, R1 | **cerrada** (2026-11-04): peor caso se mantiene |
 | M2 | De días sueltos a una muestra validada | evidencia anecdótica | **cerrada** (2026-11-04): sin evidencia, estructural |
-| M4 | ¿Un nivel con más carga (OI, sin signo) aguanta más? | la pregunta de M2 sin necesitar el signo | diseño fijo (2026-11-09): dudas 1–3 resueltas, ES de los 30 días en caché; falta el script |
+| M4 | ¿Un nivel con más carga (OI, sin signo) aguanta más? | la pregunta de M2 sin necesitar el signo | 1ª corrida (2026-11-09): **sin evidencia**; variante de la referencia pendiente de decisión |
 
 ### M3: descargas alineadas con `datos.py` — HECHA
 
@@ -477,6 +479,45 @@ propia etiqueta, al lado de esta y sin reemplazarla.
 | **Acumulador** | `data/validacion/odte_carga.csv`, separado de `odte_toques.csv` y de los CSV de GEX. Una fila por toque, con columna `definicion`. Cada columna clasificada como medido / modelo / supuesto (como `walls.clase`), con un test que lo exija |
 | **Costo** | $0: solo fotos procesadas, ES, SPX de yfinance y `toques.py`. **Sin tcbbo** |
 
+#### Primera corrida (2026-11-09, $0): SIN EVIDENCIA, y un defecto del diseño a la vista
+
+Código: `src/odte/carga.py` (17 tests en `tests/test_carga.py`), `scripts/odte/validar_carga.py` (acumula en
+`data/validacion/odte_carga.csv`) y `scripts/odte/analizar_carga.py`. Definición `p25_t2_d1000_v30_m5`, base
+móvil, 09-25..11-06 sin 10-20.
+
+| | Valor |
+|---|---|
+| Muestra | 74 toques en 30 días (3 con ventana corta, fuera): **71 toques, 30 días, 19 zonas** |
+| Frecuencia base | aguantó **34%** (con margen 5 pts en 30 min, la mayoría de los toques cruza) |
+| Toques en la mitad ALTA de su clase | **55 de 71 (77%)** |
+| Diferencia alta − baja, OI (MEDIDA) | **+11,4** pts por toque; +22,6 un voto por zona; dejar una fuera: +5,4 a +17,0 |
+| Diferencia alta − baja, gamma bruta (MODELO) | +15,4 por toque; +27,9 por zona; dejar una fuera: +9,8 a +22,1 |
+| Celdas con ≥ 10 días | solo las tres "alta"; **las tres "baja" tienen 2–5 días: NO es evidencia** |
+| Sin el 10-21 (d1_vieja) | lo mismo (+10,8 / +14,9) |
+
+Acierto sobre los mismos 71 toques:
+| Predictor | Acierto |
+|---|---|
+| ingenuo: frecuencia base (siempre "cruzó") | **66,2%** |
+| ingenuo: múltiplo de 100 aguanta | 62,0% |
+| wall con signo (SUPUESTO) | 59,2% |
+| CARGA OI (MEDIDA) | 45,1% |
+| CARGA gamma bruta (MODELO) | 45,1% |
+| ingenuo: distancia previa | 42,3% |
+
+Lectura:
+- **La carga no les gana a los ingenuos**: 45% contra 66% de la frecuencia base. La diferencia alta − baja es
+  positiva en todas las variantes y ninguna zona sola la da vuelta, pero descansa en celdas "baja" de 2–5 días.
+  Por la regla del diseño, el resultado es **SIN EVIDENCIA**.
+- **Defecto del diseño (no se corrige sobre la marcha):** el 77% de los toques cae en la mitad alta. Las zonas
+  tocadas están cerca del precio, donde se acumula el OI, mientras que la referencia de ±250 pts incluye zonas
+  lejanas con menos carga. Así el corte "alta/baja" casi no separa los toques entre sí: compara zonas cercanas
+  contra lejanas. Una variante (otra referencia, p. ej. ±100 pts o solo las zonas tocadas ese día) iría con su
+  propia etiqueta, al lado de esta, y la decide el usuario.
+- Descriptivo por zona, sin valor de prueba: 7700 (la 100 más cargada, ~490k) aguantó 3 de 12; 7800 (~400k)
+  4 de 4; 7750 (50, ~275k) 6 de 9; 7725 y 7675 (25) 2 de 10 y 1 de 7. La caída del 11-05 aporta 8 toques y 1
+  aguante (7400).
+
 #### Próxima sesión: por dónde seguir (anotado 2026-11-06)
 
 **Estado de los datos al 2026-11-06:**
@@ -528,3 +569,4 @@ propia etiqueta, al lado de esta y sin reemplazarla.
 | 2026-11-06 | M4, dudas 1 y 3: el OI se publica 06:30 ET de d; la carga de las zonas tocadas ≈ redondez (estratificar 100/50/25); `precio.py`: caché del SPX intradía de yfinance y `spx_1min(metodo_base="movil")` (por defecto sigue `"cierre"`) | `a9027b0` | 253 tests (8 nuevos); error vs SPX 1 min: > 2 pts del 40,0% al 0,3%, mediana \|err\| de 1,51 a 0,20; de 24 toques, 4 cambian de resultado y 3 desaparecen |
 | 2026-11-09 | M4: duda 2 (inventario: 30 días posibles, ES de 20 días $0,0988 por `get_cost`), diseño fijo (carga relativa dentro de la clase de redondez, ingenuos, control por zona, wall SUPUESTO como predictor aparte, acumulador `odte_carga.csv`); decisión de no agregar el 0DTE a la cadena procesada (también en CLAUDE.md). Rama `m4-diseno` | `9a94545` | sin código |
 | 2026-11-09 | ES de los 30 días en caché (la descarga terminó después del commit anterior) | (este commit) | muestra de M4 completa: 30 días, $0 de aquí en adelante |
+| 2026-11-09 | M4, primera corrida: `carga.py` (carga por zona sin mirar al futuro, percentil dentro de la clase, wall SUPUESTO aparte, contrato de columnas, celdas, voto por zona, dejar una fuera, predictores), `validar_carga` (solo caché, acumula en `odte_carga.csv`), `analizar_carga` | (sin commit) | 270 tests (17 nuevos); 71 toques en 30 días, 19 zonas; aguante base 34%; alta − baja +11,4 (OI) / +15,4 (bruto), celdas "baja" de 2–5 días; carga 45% de acierto contra 66% de la base: **sin evidencia**; 77% de los toques en la mitad alta (defecto de la referencia ±250) |
