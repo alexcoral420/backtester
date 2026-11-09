@@ -8,10 +8,10 @@ trabaja, qué riesgos tiene y qué mejoras se van aplicando. Se actualiza en cad
 
 > **Por dónde seguir (actualizado 2026-11-09, rama `odte-mejoras`, 253 tests):**
 > M1 y M2 cerradas (el signo no es identificable). En curso: **M4**, carga sin signo contra toques. Las tres
-> dudas están resueltas, el diseño está fijo y la **primera corrida está hecha** (2026-11-09; 71 toques, 30 días):
-> **SIN EVIDENCIA**. La carga acierta 45% contra 66% de la frecuencia base, y el 77% de los toques cae en la
-> mitad "alta" (defecto de la referencia de ±250 pts). **Lo siguiente:** el usuario decide si se corre una
-> variante de la referencia, con etiqueta propia (sección M4, "Primera corrida").
+> dudas están resueltas, el diseño está fijo y hay dos corridas (2026-11-09), las dos **SIN EVIDENCIA**:
+> `radio250` (71 toques en 30 días; carga 45% contra 66% de la base; el 77% en la mitad "alta") y la variante
+> `tocadas` (solo 20 toques en 6 días con comparación; el signo se invierte, −4). El límite es la muestra.
+> **Lo siguiente:** el usuario decide si cierra M4 o amplía días (~$0,67 por día).
 
 ---
 
@@ -119,7 +119,7 @@ honesto la muestra mediría el 10% del volumen como si fuera todo.
 | M3 | Descargas 0DTE con el patrón de `datos.py` | R5, R2 (R3 no) | **hecha** (2026-11-04) |
 | M1 | Veredicto del signo medido en `src`, con el % indeterminado al lado | R4, R1 | **cerrada** (2026-11-04): peor caso se mantiene |
 | M2 | De días sueltos a una muestra validada | evidencia anecdótica | **cerrada** (2026-11-04): sin evidencia, estructural |
-| M4 | ¿Un nivel con más carga (OI, sin signo) aguanta más? | la pregunta de M2 sin necesitar el signo | 1ª corrida (2026-11-09): **sin evidencia**; variante de la referencia pendiente de decisión |
+| M4 | ¿Un nivel con más carga (OI, sin signo) aguanta más? | la pregunta de M2 sin necesitar el signo | 2 corridas (2026-11-09), `radio250` y `tocadas`: **sin evidencia**; cerrar o ampliar días, a decidir |
 
 ### M3: descargas alineadas con `datos.py` — HECHA
 
@@ -518,6 +518,34 @@ Lectura:
   4 de 4; 7750 (50, ~275k) 6 de 9; 7725 y 7675 (25) 2 de 10 y 1 de 7. La caída del 11-05 aporta 8 toques y 1
   aguante (7400).
 
+#### Variante "tocadas" (2026-11-09, $0): tampoco hay evidencia, y casi no hay muestra
+
+Elegida por el usuario tras la primera corrida. La carga relativa se calcula **solo contra las zonas de la misma
+clase tocadas ese día** (`carga.relativa_entre_tocadas`; `validar_carga --referencia tocadas`). Queda en el
+acumulador con `referencia=tocadas`, al lado de `radio250`, sin reemplazarla. Una clase con una sola zona
+tocada ese día no tiene contra qué compararse (NaN, fuera). Control: la salida de `radio250` quedó idéntica,
+salvo la cabecera.
+
+| | radio250 (diseño fijo) | tocadas (variante) |
+|---|---|---|
+| Toques analizables | 71 en 30 días, 19 zonas | **20 en 6 días**, 14 zonas (51 sin comparación) |
+| Aguante base | 34% | 20% |
+| Alta − baja, OI (MEDIDA) | +11,4 (por zona +22,6) | **−4,0** (por zona −15,2) |
+| Dejar una zona fuera | +5,4 a +17,0, estable | −13,9 a +5,7: **depende de 7400, 7425 y 7575** |
+| Celdas con ≥ 10 días | 3 de 6 | **0 de 6** |
+| Acierto carga / frecuencia base | 45% / 66% | 45% / 80% |
+| Wall SUPUESTO | 59% | 65% |
+
+Lectura:
+- En la mayoría de los días el precio toca **una sola zona por clase**, así que la comparación "toque contra
+  toque del mismo día y clase" deja 6 días, y 8 de los 20 toques son de la caída del 11-05.
+- El +11 de `radio250` **no sobrevive** a la comparación entre tocadas: el signo se da vuelta (−4), aunque sin
+  evidencia y dependiendo de zonas sueltas. Es coherente con el defecto señalado: el +11 venía sobre todo de
+  comparar zonas cercanas contra lejanas.
+- **Conclusión de M4 con 30 días: SIN EVIDENCIA en las dos referencias.** El límite no es la referencia sino la
+  muestra: con un primer toque por zona y día, las comparaciones dentro de la clase son pocas. Ampliarla cuesta
+  ~$0,67 por día nuevo (foto + ES), y harían falta muchos días: unos 6 días útiles salieron de 30.
+
 #### Próxima sesión: por dónde seguir (anotado 2026-11-06)
 
 **Estado de los datos al 2026-11-06:**
@@ -569,4 +597,5 @@ Lectura:
 | 2026-11-06 | M4, dudas 1 y 3: el OI se publica 06:30 ET de d; la carga de las zonas tocadas ≈ redondez (estratificar 100/50/25); `precio.py`: caché del SPX intradía de yfinance y `spx_1min(metodo_base="movil")` (por defecto sigue `"cierre"`) | `a9027b0` | 253 tests (8 nuevos); error vs SPX 1 min: > 2 pts del 40,0% al 0,3%, mediana \|err\| de 1,51 a 0,20; de 24 toques, 4 cambian de resultado y 3 desaparecen |
 | 2026-11-09 | M4: duda 2 (inventario: 30 días posibles, ES de 20 días $0,0988 por `get_cost`), diseño fijo (carga relativa dentro de la clase de redondez, ingenuos, control por zona, wall SUPUESTO como predictor aparte, acumulador `odte_carga.csv`); decisión de no agregar el 0DTE a la cadena procesada (también en CLAUDE.md). Rama `m4-diseno` | `9a94545` | sin código |
 | 2026-11-09 | ES de los 30 días en caché (la descarga terminó después del commit anterior) | (este commit) | muestra de M4 completa: 30 días, $0 de aquí en adelante |
-| 2026-11-09 | M4, primera corrida: `carga.py` (carga por zona sin mirar al futuro, percentil dentro de la clase, wall SUPUESTO aparte, contrato de columnas, celdas, voto por zona, dejar una fuera, predictores), `validar_carga` (solo caché, acumula en `odte_carga.csv`), `analizar_carga` | (sin commit) | 270 tests (17 nuevos); 71 toques en 30 días, 19 zonas; aguante base 34%; alta − baja +11,4 (OI) / +15,4 (bruto), celdas "baja" de 2–5 días; carga 45% de acierto contra 66% de la base: **sin evidencia**; 77% de los toques en la mitad alta (defecto de la referencia ±250) |
+| 2026-11-09 | M4, primera corrida: `carga.py` (carga por zona sin mirar al futuro, percentil dentro de la clase, wall SUPUESTO aparte, contrato de columnas, celdas, voto por zona, dejar una fuera, predictores), `validar_carga` (solo caché, acumula en `odte_carga.csv`), `analizar_carga` | `d2b1283` | 270 tests (17 nuevos); 71 toques en 30 días, 19 zonas; aguante base 34%; alta − baja +11,4 (OI) / +15,4 (bruto), celdas "baja" de 2–5 días; carga 45% de acierto contra 66% de la base: **sin evidencia**; 77% de los toques en la mitad alta (defecto de la referencia ±250) |
+| 2026-11-09 | M4, variante `tocadas`: `carga.relativa_entre_tocadas`, columna `referencia` en el acumulador (las filas viejas quedan como `radio250`), `validar_carga --referencia`, `analizar_carga` por (definición, referencia) | (sin commit) | 273 tests (3 nuevos); `radio250` idéntica salvo la cabecera; `tocadas`: 20 toques en 6 días (51 sin comparación), alta − baja −4,0, depende de zonas sueltas, 0 celdas con evidencia; carga 45% contra 80% de la base: **sin evidencia** |

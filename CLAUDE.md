@@ -96,7 +96,11 @@ Here k = gex_contrib/OI. The ΔOI excludes expirations, because an expiry is not
 - **Load sources:** OI from the photo of d (measured); gross gamma (model) and the assumed wall from the photo of d−1, without what expires on d.
 - **Relative load:** a percentile within the roundness class (100/50/25).
 - **Scripts:** `scripts/odte/validar_carga.py` (cache-only, $0, accumulator `data/validacion/odte_carga.csv`) and `analizar_carga.py`.
-- **First run (2026-11-09):** "sin evidencia". The load scores 45% against 66% for the base rate. 77% of touches fall in the "high" half, because of the ±250-pt reference. `clasificacion.ubicar_trades` says where each print sat (ask/bid/medio/interior/fuera); signing the interior by proximity is INFERRED and goes in separate columns. Constants are in `constantes.py`. Status, risks and the improvement log live in `ODTE.md`.
+- **Reference column:** `referencia` sets what the relative load is compared against. `radio250` (fixed design) uses the same-class zones within ±250 pts of the d−1 close. `tocadas` (variant, `--referencia tocadas`) uses only the same-class zones touched that day. The two are analysed apart and never mixed.
+- **Result (2026-11-09):** both are "sin evidencia".
+  - `radio250`: 71 touches in 30 days. The load scores 45% against 66% for the base rate, and 77% of touches fall in the "high" half.
+  - `tocadas`: only 20 touches in 6 days have a comparison. The difference flips to −4.
+- **The limit is the sample:** on most days only one zone per class gets touched. `clasificacion.ubicar_trades` says where each print sat (ask/bid/medio/interior/fuera); signing the interior by proximity is INFERRED and goes in separate columns. Constants are in `constantes.py`. Status, risks and the improvement log live in `ODTE.md`.
 
 **Timezones:** every timestamp carries `America/New_York` explicitly. Databento `expiration` is midnight UTC, which falls on the *previous* day in NY. This was the project's first bug and has a regression test in `tests/test_catalogo.py`.
 

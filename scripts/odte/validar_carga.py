@@ -1,6 +1,11 @@
 """
 Uso:  python scripts/odte/validar_carga.py 2026-09-25 2026-11-06 --sin 2026-10-20
+      python scripts/odte/validar_carga.py 2026-09-25 2026-11-06 --sin 2026-10-20 --referencia tocadas
 Opciones de definición del toque (ODTE.md, M2): --paso 25 --tol 2 --desde 10:00 --ventana 30 --margen 5
+--referencia: contra qué zonas se calcula la carga RELATIVA (src/odte/carga.py):
+    radio250 (por defecto, diseño fijo): las de la misma clase a <= 250 pts del cierre de d-1
+    tocadas  (variante): solo las de la misma clase tocadas ese día (con una sola -> sin comparación)
+Cada referencia queda en el acumulador con su etiqueta y se analiza aparte.
 
 M4 de ODTE.md ("Diseño fijo de M4"): ¿un nivel con más carga (OI, sin signo) aguanta más el toque?
 Por día d, cada múltiplo de 25 que el SPX TOCÓ (src/odte/toques.py, SPX = ES - base MÓVIL) con la carga de su
@@ -25,7 +30,7 @@ import yfinance as yf
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from src.odte.carga import carga_dia, unir
+from src.odte.carga import REFERENCIA_FIJA, REFERENCIAS, carga_dia, relativa_entre_tocadas, unir
 from src.odte.precio import ruta_es, ruta_spx_yf, spx_1min
 from src.odte.toques import Definicion, toques
 
@@ -41,6 +46,7 @@ ap.add_argument("--tol", type=float, default=Definicion.tolerancia)
 ap.add_argument("--desde", default=Definicion.desde)
 ap.add_argument("--ventana", type=int, default=Definicion.ventana_min)
 ap.add_argument("--margen", type=float, default=Definicion.margen)
+ap.add_argument("--referencia", choices=REFERENCIAS, default=REFERENCIA_FIJA)
 a = ap.parse_args()
 d = Definicion(a.paso, a.tol, a.desde, a.ventana, a.margen)
 if d.paso != 25:
@@ -88,19 +94,26 @@ if saltados:
 if not filas:
     raise SystemExit("Ningún día con toques: nada que acumular.")
 t = pd.concat(filas, ignore_index=True)
+if a.referencia == "tocadas":
+    t = relativa_entre_tocadas(t)
+t.insert(2, "referencia", a.referencia)
 medidos = sorted(t["fecha"].unique())
 
 os.makedirs(os.path.dirname(RUTA_ACUM), exist_ok=True)
 acum = pd.read_csv(RUTA_ACUM, dtype={"fecha": str}) if os.path.exists(RUTA_ACUM) else pd.DataFrame()
 if len(acum):
-    acum = acum[~((acum["definicion"] == d.etiqueta()) & acum["fecha"].isin(fechas))]
-acum = pd.concat([acum, t], ignore_index=True).sort_values(["definicion", "fecha", "strike"])
+    if "referencia" not in acum.columns:              # filas de antes de la variante: eran todas radio250
+        acum.insert(2, "referencia", REFERENCIA_FIJA)
+    acum = acum[~((acum["definicion"] == d.etiqueta()) & (acum["referencia"] == a.referencia)
+                  & acum["fecha"].isin(fechas))]
+acum = pd.concat([acum, t], ignore_index=True).sort_values(["definicion", "referencia", "fecha", "strike"])
 acum.to_csv(RUTA_ACUM, index=False)
 print(f"[acumulado] {len(t)} toques de {len(medidos)} días en {RUTA_ACUM} (total {len(acum)}). "
       f"Análisis: python scripts/odte/analizar_carga.py", file=sys.stderr)
 
 pd.set_option("display.width", 250)
-print(f"=== M4 | toques {a.inicio} a {a.fin} | definición {d.etiqueta()} | SPX = ES - base móvil ===")
+print(f"=== M4 | toques {a.inicio} a {a.fin} | definición {d.etiqueta()} | referencia {a.referencia} "
+      f"| SPX = ES - base móvil ===")
 print("(oi_total y pct_carga_oi MEDIDOS; gex_bruto y pct_carga_bruto MODELO; gex_sup y es_wall_sup SUPUESTOS)")
 v = t.assign(oi_k=t["oi_total"] / 1e3, bruto_B=t["gex_bruto"] / 1e9, sup_B_SUPUESTO=t["gex_sup"] / 1e9,
              wall_SUPUESTO=t["es_wall_sup"])

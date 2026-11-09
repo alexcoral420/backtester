@@ -13,6 +13,13 @@ mostró que, sin estratificar, "más carga" y "más redonda" son la misma variab
 Una zona tocada fuera del radio (días de movimiento grande) se compara contra esa misma referencia y queda
 marcada con fuera_radio=True.
 
+Referencias (columna `referencia` del acumulador; cada una se analiza aparte, nunca se mezclan):
+  "radio250" (la del diseño fijo): las zonas de la clase a <= RADIO pts del cierre de d-1. Primera corrida:
+             el 77% de los toques cayó en la mitad alta, porque compara zonas cercanas (cargadas) contra lejanas.
+  "tocadas"  (variante, 2026-11-09): solo las zonas de la misma clase TOCADAS ese día. Compara toques contra
+             toques. Una clase con una sola zona tocada ese día no tiene contra qué compararse -> NaN (sin
+             comparación), y esos toques quedan fuera del análisis de esta referencia.
+
 El 0DTE no entra en ninguna carga (decisión del usuario, 2026-11-09; ver CLAUDE.md).
 """
 import numpy as np
@@ -26,9 +33,11 @@ RADIO = 250          # pts alrededor del cierre de d-1 que definen las zonas de 
 TOP_WALLS = 5        # es_wall_sup = entre las TOP_WALLS zonas de referencia por |gex_sup|
 MIN_DIAS = 10        # por debajo, una tasa no es evidencia (mismo criterio que analizar_odte)
 CLASES = ("100", "50", "25")
+REFERENCIAS = ("radio250", "tocadas")
+REFERENCIA_FIJA = "radio250"
 
 # CONTRATO de las columnas del acumulador (lo verifica tests/test_carga.py): cada columna en UNA lista.
-CLAVES = ["fecha", "definicion", "strike", "t_toque"]
+CLAVES = ["fecha", "definicion", "referencia", "strike", "t_toque"]
 PRECIO = ["lado", "dist_previa", "peor_exceso", "resultado", "S_previo", "dist_cierre_previo"]
 MEDIDAS = ["oi_c", "oi_p", "oi_total", "pct_puts", "pct_carga_oi"]
 MODELO = ["gex_bruto", "pct_carga_bruto"]
@@ -103,6 +112,21 @@ def unir(tq: pd.DataFrame, carga: pd.DataFrame) -> pd.DataFrame:
     r = tq.assign(_zona=tq["strike"].astype(float)).merge(carga[cols], left_on="_zona", right_index=True,
                                                          how="left", validate="many_to_one")
     return r.drop(columns="_zona")
+
+
+def relativa_entre_tocadas(t: pd.DataFrame) -> pd.DataFrame:
+    """Variante "tocadas": recalcula pct_carga_oi y pct_carga_bruto contra las zonas de la MISMA clase tocadas
+    el MISMO día (todos los toques del día, también los de ventana corta: su carga se conocía igual).
+    Con menos de 2 zonas en (día, clase) -> NaN: sin comparación."""
+    if t.duplicated(["fecha", "strike"]).any():
+        raise ValueError("hay zonas tocadas dos veces el mismo día: toques.py cuenta solo el primer toque")
+    t = t.copy()
+    for col, dest in (("oi_total", "pct_carga_oi"), ("gex_bruto", "pct_carga_bruto")):
+        t[dest] = np.nan
+        for _, g in t.groupby(["fecha", "clase"]):
+            if len(g) >= 2:
+                t.loc[g.index, dest] = _percentil(g[col], g[col])
+    return t
 
 
 # ------------------------------------------------------------------------------------------------

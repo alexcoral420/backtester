@@ -96,8 +96,9 @@ def test_unir_grita_si_falta_la_zona(z):
 def test_contrato_clasifica_todas_las_columnas(z):
     tq = pd.DataFrame({"strike": [7700], "t_toque": ["10:30"], "lado": ["arriba"], "dist_previa": [9.0],
                        "peor_exceso": [1.0], "resultado": [AGUANTO]})
-    r = cg.unir(tq, z).assign(fecha=FECHA, definicion="p25", S_previo=7700.0, dist_cierre_previo=0.0,
-                              d1_vieja=False)
+    r = cg.unir(tq, z).assign(fecha=FECHA, definicion="p25", referencia="radio250", S_previo=7700.0,
+                              dist_cierre_previo=0.0, d1_vieja=False)
+    assert cg.clase("referencia") == "clave"
     clases = {c: cg.clase(c) for c in r.columns}
     assert clases["gex_sup"] == clases["es_wall_sup"] == "supuesto"
     assert clases["gex_bruto"] == "modelo" and clases["oi_total"] == "medido"
@@ -165,3 +166,37 @@ def test_predicciones_sobre_los_mismos_toques():
 def test_contables_saca_ventana_corta():
     t = muestra([("d1", 7700, "100", 90, AGUANTO), ("d1", 7600, "100", 10, "ventana corta")])
     assert len(cg.contables(t)) == 1
+
+
+# ---------------- variante "tocadas" ----------------
+def tocadas(filas):
+    """filas: (fecha, strike, clase, oi_total, gex_bruto)"""
+    t = pd.DataFrame(filas, columns=["fecha", "strike", "clase", "oi_total", "gex_bruto"])
+    t["pct_carga_oi"] = t["pct_carga_bruto"] = 99.0          # valores de radio250 que deben reemplazarse
+    return t
+
+
+def test_tocadas_compara_solo_contra_las_tocadas_de_la_misma_clase_y_dia():
+    t = cg.relativa_entre_tocadas(tocadas([
+        ("d1", 7700, "100", 500, 30), ("d1", 7800, "100", 400, 40),     # 100 del d1: 7700 alta en OI, baja en bruto
+        ("d1", 7750, "50", 300, 20),                                    # única 50 del d1 -> sin comparación
+        ("d2", 7700, "100", 100, 10), ("d2", 7600, "100", 200, 20), ("d2", 7500, "100", 300, 30)]))
+    p = t.set_index(["fecha", "strike"])
+    assert p.loc[("d1", 7700), "pct_carga_oi"] == 75.0 and p.loc[("d1", 7800), "pct_carga_oi"] == 25.0
+    assert p.loc[("d1", 7700), "pct_carga_bruto"] == 25.0
+    assert np.isnan(p.loc[("d1", 7750), "pct_carga_oi"])            # sola en su clase: NaN, no 50
+    assert p.loc[("d2", 7700), "pct_carga_oi"] == pytest.approx(100 / 6)
+    assert p.loc[("d2", 7600), "pct_carga_oi"] == 50.0             # la mediana cuenta como alta (>= 50)
+
+
+def test_tocadas_no_mezcla_dias():
+    """La misma zona con la misma carga es alta un día y baja otro, según contra quién se compara."""
+    t = cg.relativa_entre_tocadas(tocadas([("d1", 7700, "100", 300, 1), ("d1", 7800, "100", 100, 1),
+                                           ("d2", 7700, "100", 300, 1), ("d2", 7600, "100", 900, 1)]))
+    p = t.set_index(["fecha", "strike"])["pct_carga_oi"]
+    assert p[("d1", 7700)] == 75.0 and p[("d2", 7700)] == 25.0
+
+
+def test_tocadas_grita_con_zona_repetida_en_el_dia():
+    with pytest.raises(ValueError, match="dos veces"):
+        cg.relativa_entre_tocadas(tocadas([("d1", 7700, "100", 1, 1), ("d1", 7700, "100", 2, 2)]))

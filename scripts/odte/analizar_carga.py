@@ -1,6 +1,9 @@
 """
-Uso:  python scripts/odte/analizar_carga.py                        (todas las definiciones acumuladas)
-      python scripts/odte/analizar_carga.py p25_t2_d1000_v30_m5    (solo esa)
+Uso:  python scripts/odte/analizar_carga.py                                 (todo lo acumulado)
+      python scripts/odte/analizar_carga.py p25_t2_d1000_v30_m5             (solo esa definición)
+      python scripts/odte/analizar_carga.py p25_t2_d1000_v30_m5 tocadas     (solo esa definición y referencia)
+Cada (definición, referencia) se analiza aparte. Con la referencia "tocadas", los toques sin comparación (única
+zona de su clase tocada ese día) quedan fuera y se cuentan.
 
 Analiza M4 (ODTE.md, "Diseño fijo de M4") sobre data/validacion/odte_carga.csv. $0.
 Pregunta: dentro de cada clase de redondez (100 / 50 / 25), ¿las zonas de carga relativa alta aguantan más?
@@ -31,7 +34,14 @@ NOMBRES = {"base": "ingenuo: frecuencia base", "mult100": "ingenuo: múltiplo de
 if not os.path.exists(RUTA):
     raise SystemExit(f"No existe {RUTA}: correr antes scripts/odte/validar_carga.py")
 todo = pd.read_csv(RUTA, dtype={"fecha": str, "clase": str})
-defs = [sys.argv[1]] if len(sys.argv) > 1 else sorted(todo["definicion"].unique())
+if "referencia" not in todo.columns:                  # acumulador de antes de la variante: todo radio250
+    todo["referencia"] = cg.REFERENCIA_FIJA
+grupos = sorted(todo.groupby(["definicion", "referencia"]).groups)
+if len(sys.argv) > 1:
+    grupos = [g for g in grupos if g[0] == sys.argv[1] and (len(sys.argv) < 3 or g[1] == sys.argv[2])]
+    if not grupos:
+        raise SystemExit(f"Sin filas para {sys.argv[1:]}. Hay: "
+                         f"{sorted(todo.groupby(['definicion', 'referencia']).groups)}")
 pd.set_option("display.width", 200)
 
 
@@ -62,13 +72,16 @@ def reporte(t, titulo):
           " 1-2 toques mueven varios puntos)")
 
 
-for nombre in defs:
-    t0 = todo[todo["definicion"] == nombre]
-    if t0.empty:
-        raise SystemExit(f"Definición {nombre!r} sin filas. Hay: {sorted(todo['definicion'].unique())}")
+for nombre, ref in grupos:
+    t0 = todo[(todo["definicion"] == nombre) & (todo["referencia"] == ref)]
     t = cg.contables(t0)
-    print(f"\n=== M4, definición {nombre}: {len(t0)} toques en {t0['fecha'].nunique()} días "
+    print(f"\n=== M4, definición {nombre}, referencia {ref}: {len(t0)} toques en {t0['fecha'].nunique()} días "
           f"({t0['fecha'].min()} a {t0['fecha'].max()}); {len(t0) - len(t)} con ventana corta, fuera ===")
+    sin_comp = t["pct_carga_oi"].isna() | t["pct_carga_bruto"].isna()
+    if sin_comp.any():
+        print(f"Sin comparación (única zona de su clase tocada ese día): {int(sin_comp.sum())} toques, fuera; "
+              f"quedan {int((~sin_comp).sum())} en {t.loc[~sin_comp, 'fecha'].nunique()} días")
+        t = t[~sin_comp]
     print(f"Fuera del radio de referencia (±{cg.RADIO} pts del cierre de d−1): {int(t['fuera_radio'].sum())} toques")
 
     por_dia = t.groupby("fecha").agg(toques=("strike", "size"),
