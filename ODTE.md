@@ -6,11 +6,12 @@ trabaja, qué riesgos tiene y qué mejoras se van aplicando. Se actualiza en cad
 - Revisión inicial: 2026-11-04, rama `spxw-raices`, commit `48d7433`.
 - Último cambio de código del módulo a esa fecha: `1171d50` (2026-10-17).
 
-> **Por dónde seguir (actualizado 2026-11-09, rama `m4-diseno`, 273 tests):**
+> **Por dónde seguir (actualizado 2026-11-09, rama `odte-graficos`, 293 tests):**
 > **M1, M2 y M4 cerradas.** M1 y M2: el signo del dealer no es identificable. M4: la carga sin signo (OI) no
 > predice si un nivel aguanta el toque. Cerrada **SIN EVIDENCIA** por decisión del usuario (2026-11-09), con dos
 > corridas: `radio250` (carga 45% contra 66% de la base) y `tocadas` (20 toques en 6 días, signo invertido).
 > No hay mejora abierta en el módulo. Antes de reabrir M4, leer "Cierre de M4" (sección M4).
+> **Visualización:** `streamlit run app/panel_odte.py` (solo lee la caché, $0, sin API key). Ver "Panel 0DTE" en §1.
 
 ---
 
@@ -31,6 +32,8 @@ trabaja, qué riesgos tiene y qué mejoras se van aplicando. Se actualiza en cad
 | `calendario.py` | ¿A qué hora cerró el mercado ese día? (cierres tempranos, tabla por año) | M3 |
 | `descargas.py` | ¿Qué falta en caché para un rango de días, y cuánto cuesta? | M3; `asegurar_odte` |
 | `toques.py` | Cuando el precio llegó a un strike, ¿aguantó o se cruzó? ¿Qué flujo medido había antes? | M2 |
+| `carga.py` | ¿Un nivel con más carga (OI, sin signo) aguanta más? | M4; solo caché |
+| `vista.py` | ¿Qué hay en caché para dibujar cada día? (datos del panel) | solo caché, $0; `SinDatos` con el motivo si falta algo |
 | `constantes.py` | Dataset, raíz, caché, zona NY | |
 
 ### `scripts/odte/` (15 scripts): 13 de UN día y 2 de rango (M2)
@@ -43,10 +46,35 @@ trabaja, qué riesgos tiene y qué mejoras se van aplicando. Se actualiza en cad
 | Por strike | `ver_strikes_0dte`, `antes_despues_0dte`, `caracterizar_strike_0dte` |
 | Muestra (rango, M2) | `validar_0dte` (acumula en `data/validacion/odte_toques.csv`), `analizar_odte` ($0) |
 
+### Panel 0DTE (`app/panel_odte.py`, 2026-11-09)
+
+`streamlit run app/panel_odte.py`, desde la raíz. Solo dibuja: los datos salen de `src/odte/vista.py`, que lee
+únicamente la caché (no descarga, no cotiza, no pide la API key; `tests/test_vista.py` hace gritar a
+`datos.asegurar_descargas`, `datos._cliente` y yfinance). La paleta y las marcas de cada clase están en
+`app/estilo.py`, compartido con `app/panel.py`.
+
+| Pestaña | Qué muestra | Clase |
+|---|---|---|
+| El día | SPX por minuto, zonas de 25, toques (color + forma) con su ventana de 30 min; al lado, en paneles separados que comparten el eje de precio: OI calls/puts, gamma bruta, GEX neto y marca "wall" | MEDIDO / MEDIDO / MODELO / SUPUESTO |
+| Flujo por minuto | SPX y flujo neto acumulado del público (calls y puts), regla estricta o punto medio; franja, series cubiertas, rango de strikes y % indeterminado | MEDIDO (el signo del dealer NO se dibuja) |
+| M4 | Aguante por clase × mitad de carga con los días de cada celda (atenuada y "sin evidencia" si < 10 días), acierto de cada predictor contra la frecuencia base, carga contra peor exceso; selector `radio250` / `tocadas` | MEDIDO (OI), MODELO (bruto), SUPUESTO (wall, aparte) |
+| La muestra | Mapa día × zona con el resultado de cada toque y el conteo por zona | MEDIDO |
+| M1 y M2 | Por toque: volumen previo compra/venta/indeterminado, dónde se imprimió lo indeterminado, \|neto\|/indet contra el mínimo 1 | MEDIDO |
+| Inventario | Qué hay en caché por día hábil y qué falta | |
+
+**Días sin datos:** `vista.inventario()` lista cada día hábil entre el primer y el último dato. Un día al que le
+falta algo queda fuera del selector que lo necesita y se nombra con su motivo; no rompe. El 2026-10-20 (sin datos
+en Databento) aparece como día sin nada y como columna vacía rotulada en el mapa de la muestra. Estado de la
+caché al 2026-11-09: 32 días hábiles, 30 con precio y carga, **9 con flujo** (sesión completa: 09-29, 10-12,
+10-14, 10-15, 10-16, 10-19; franja parcial: 10-02 09:30–11:00, 10-05 09:45–10:30, 10-06 10:30–11:45). El flujo
+cubre solo los strikes bajados (24–62 de ~500 series 0DTE por día): el panel lo dice en cada día. No se paga
+tcbbo para ampliarlo (M2 cerrada).
+
 ### Tests
 
 `test_catalogo`, `test_clasificacion`, `test_dealer`, `test_flujo`, `test_trades`, `test_precio_spx`,
-`test_veredicto`, `test_cruce` (desde M1), `test_descargas` (desde M3, con un cliente de Databento falso), `test_toques` (desde M2). Cubren:
+`test_veredicto`, `test_cruce` (desde M1), `test_descargas` (desde M3, con un cliente de Databento falso), `test_toques` (desde M2),
+`test_carga` (M4), `test_vista` (panel: caché falsa, día sin datos, ninguna descarga). Cubren:
 - el bug de `expiration` (medianoche UTC = día anterior en NY);
 - las fronteras bid/ask de ambas reglas;
 - el desborde de `size` uint32 con flujo negativo;
@@ -634,3 +662,4 @@ números redondos.
 | 2026-11-09 | M4, primera corrida: `carga.py` (carga por zona sin mirar al futuro, percentil dentro de la clase, wall SUPUESTO aparte, contrato de columnas, celdas, voto por zona, dejar una fuera, predictores), `validar_carga` (solo caché, acumula en `odte_carga.csv`), `analizar_carga` | `d2b1283` | 270 tests (17 nuevos); 71 toques en 30 días, 19 zonas; aguante base 34%; alta − baja +11,4 (OI) / +15,4 (bruto), celdas "baja" de 2–5 días; carga 45% de acierto contra 66% de la base: **sin evidencia**; 77% de los toques en la mitad alta (defecto de la referencia ±250) |
 | 2026-11-09 | M4, variante `tocadas`: `carga.relativa_entre_tocadas`, columna `referencia` en el acumulador (las filas viejas quedan como `radio250`), `validar_carga --referencia`, `analizar_carga` por (definición, referencia) | `c5828aa` | 273 tests (3 nuevos); `radio250` idéntica salvo la cabecera; `tocadas`: 20 toques en 6 días (51 sin comparación), alta − baja −4,0, depende de zonas sueltas, 0 celdas con evidencia; carga 45% contra 80% de la base: **sin evidencia** |
 | 2026-11-09 | **Cierre de M4: sin evidencia** (decisión del usuario). Sección "Cierre de M4" (respuesta, por qué no se amplía, qué queda, qué no hacer); estado y tabla de mejoras actualizados | (este commit) | sin código; radio250 45% vs 66% de la base; tocadas 45% vs 80% (20 toques en 6 días); el límite es la muestra (~50–100 días más para 10 días por celda) |
+| 2026-11-09 | Panel 0DTE: `src/odte/vista.py` (lectura solo caché, `SinDatos`, inventario por día hábil), `app/panel_odte.py` (6 pestañas: el día, flujo por minuto, M4, la muestra, M1/M2, inventario), `app/estilo.py` (paleta y marcas compartidas; `app/panel.py` la importa). Rama `odte-graficos` | (este commit) | 293 tests (20 nuevos); 30 días con precio y carga, 9 con flujo (3 con franja parcial), el 10-20 listado sin romper; las cifras del panel coinciden con `analizar_carga` y `analizar_odte` (71 toques, base 34%, +11,4 / −4,0; \|neto\|/indet 0,035). Arreglo de paso: el patrón rayado/punteado con color único dejaba la barra transparente (`fillmode="overlay"`) |
