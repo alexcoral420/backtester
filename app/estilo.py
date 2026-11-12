@@ -70,3 +70,8 @@ def patron_clase(k):
 
 def linea_clase(k, color, ancho=2):
     return dict(color=color, width=ancho, dash=_TRAZO[k])
+
+# --- Panel de medidas (validado 2026-11-12 con validate_palette.js en claro y oscuro) ------------------------
+# Un gráfico que pone MEDIDO y MODELO juntos: naranja contra violeta (el azul y el violeta no pasan el piso de
+# visión normal entre sí). Además la clase va en el patrón y en el texto: nunca solo color.
+MEDIDO_MIXTO, MODELO_MIXTO = ("#d95926", "#8a6fd0") if OSCURO else ("#eb6834", "#6a51a3")

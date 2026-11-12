@@ -27,8 +27,6 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
-from src.gex import signo_gamma_supuesto
-
 BANDA = 25
 RADIO = 250              # pts alrededor del spot nuevo para comparar rankings de zonas
 RADIO_LOCAL = 50         # pts alrededor del spot que cuentan como gamma "local"
@@ -36,6 +34,8 @@ TOL_IDENTIDAD = 1e-9     # diferencia relativa máxima entre la gamma guardada y
 ANIO_SEG = 365 * 24 * 3600
 PROCESADO = "data/procesado/cadena_SPX+SPXW_horas_{}.parquet"
 RAICES, PLAZO = ("SPX", "SPXW"), "horas"
+RUTA_PERFIL = "data/procesado/perfil_gamma_{}.parquet"      # rejilla zona × spot ya calculada (la lee el panel)
+PASO_REJILLA, ALCANCE_REJILLA, ALCANCE_ZONAS = 25, 400, 600
 
 MODELO = ["gamma_s2", "gex_bruto", "gex_bruto_c", "gex_bruto_p", "gex_bruto_local", "real", "recalculada", "vieja"]
 SUPUESTAS = ["gex_sup"]
@@ -116,6 +116,8 @@ def gex_bruto_en(c: pd.DataFrame, S2: float, avance: float = 0.0) -> pd.Series:
 def perfil(c: pd.DataFrame, spots, avance: float = 0.0, banda: int = BANDA) -> pd.DataFrame:
     """Una fila por (spot, zona): gex_bruto_c, gex_bruto_p, gex_bruto (MODELO) y gex_sup (SUPUESTO: neto con
     el signo de la hipótesis nula). Zonas de `banda` puntos, como walls.zonas_dia."""
+    from src.gex import signo_gamma_supuesto      # aquí y no arriba: gex importa config (la API key)
+
     zona = (c["strike"] / banda).round() * banda
     signo = signo_gamma_supuesto(c["tipo"])
     partes = []
@@ -127,6 +129,19 @@ def perfil(c: pd.DataFrame, spots, avance: float = 0.0, banda: int = BANDA) -> p
         z.insert(0, "spot", float(S2))
         partes.append(z.reset_index())
     return pd.concat(partes, ignore_index=True)
+
+
+def rejilla(c: pd.DataFrame) -> pd.DataFrame:
+    """El perfil en una rejilla fija de spots (múltiplos de PASO_REJILLA a <= ALCANCE_REJILLA del cierre, más
+    el cierre mismo), zonas a <= ALCANCE_ZONAS. Lleva S (el spot de la foto) y cobertura_pct en cada fila.
+    Es lo que se guarda en RUTA_PERFIL para que el panel dibuje sin recalcular (ni necesitar config)."""
+    S = float(c["S"].iloc[0])
+    lo = int(np.ceil((S - ALCANCE_REJILLA) / PASO_REJILLA)) * PASO_REJILLA
+    spots = sorted(set(range(lo, int(S + ALCANCE_REJILLA) + 1, PASO_REJILLA)) | {S})
+    p = perfil(c, spots)
+    p = p[(p["zona"] - S).abs() <= ALCANCE_ZONAS].reset_index(drop=True)
+    p["S"], p["cobertura_pct"] = S, cobertura(c)
+    return p
 
 
 def envejecimiento(c: pd.DataFrame, S2: float, avance: float = 0.0, radio: float = RADIO, top: int = 5) -> dict:

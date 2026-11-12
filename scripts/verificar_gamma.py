@@ -54,6 +54,11 @@ for a, b in zip(fotos, fotos[1:]):
 if not filas:
     raise SystemExit("No hay pares de fotos consecutivas para verificar.")
 t = pd.DataFrame(filas)
+RUTA = "data/validacion/gamma_verificacion.csv"          # acumulador propio (lo lee app/panel_medidas.py)
+acum = pd.read_csv(RUTA) if os.path.exists(RUTA) else pd.DataFrame(columns=t.columns)
+acum = pd.concat([acum[~acum["foto"].isin(t["foto"])], t]).sort_values("foto")
+acum.round(6).to_csv(RUTA, index=False)
+print(f"[acumulado] {len(t)} pares guardados en {RUTA} (total {len(acum)})", file=sys.stderr)
 
 print(f"=== Gamma recalculada contra la foto real del día siguiente | {len(t)} pares | MODELO, sin signo ===")
 print(f"identidad: {len(cadenas)} fotos reproducen su gamma guardada (tolerancia {pg.TOL_IDENTIDAD:.0e}); "

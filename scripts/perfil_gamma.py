@@ -7,6 +7,10 @@ El mapa de gamma de la foto de FECHA recalculado a otros precios (src/perfil_gam
   2. Qué queda mañana: la misma foto un día de calendario después, en el mismo spot (lo que vence sale).
   3. Neto con la hipótesis nula (SUPUESTO) por spot, aparte: dónde cambiaría de signo SI el supuesto valiera.
 La banda de error de un perfil recalculado la da scripts/verificar_gamma.py.
+
+      python scripts/perfil_gamma.py --todas                          (solo guarda la rejilla de cada foto)
+Cada corrida guarda la rejilla zona × spot en data/procesado/perfil_gamma_FECHA.parquet: es lo que lee
+app/panel_medidas.py, que no recalcula nada.
 """
 import os
 import sys
@@ -20,12 +24,32 @@ from src import perfil_gamma as pg                                     # noqa: E
 
 pd.set_option("display.width", 250)
 if len(sys.argv) < 2:
-    raise SystemExit("Uso: python scripts/perfil_gamma.py FECHA [spot ...]")
+    raise SystemExit("Uso: python scripts/perfil_gamma.py FECHA [spot ...]   |   --todas")
+
+
+def guardar(fecha, c):
+    ruta = pg.RUTA_PERFIL.format(fecha)
+    pg.rejilla(c).to_parquet(ruta)
+    print(f"[perfil] {ruta}", file=sys.stderr)
+
+
+if sys.argv[1] == "--todas":
+    from src.odte import vista
+    for f in vista.fotos():
+        if os.path.exists(pg.RUTA_PERFIL.format(f)):
+            continue
+        try:
+            guardar(f, pg.insumos(f, TASA_LIBRE_RIESGO))
+        except (FileNotFoundError, ValueError) as e:
+            print(f"[saltado] {e}", file=sys.stderr)
+    raise SystemExit(0)
+
 fecha = sys.argv[1]
 try:
     c = pg.insumos(fecha, TASA_LIBRE_RIESGO)
 except (FileNotFoundError, ValueError) as e:
     raise SystemExit(str(e))
+guardar(fecha, c)
 S = float(c["S"].iloc[0])
 spots = [float(x) for x in sys.argv[2:]] or [S + d for d in (-200, -150, -100, -50, 0, 50, 100, 150, 200)]
 if S not in spots:
