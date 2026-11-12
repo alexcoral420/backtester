@@ -164,3 +164,16 @@ def test_toda_columna_esta_clasificada():
     assert pg.clase("gex_sup") == "supuesto"
     with pytest.raises(ValueError):
         pg.clase("columna_nueva")
+
+
+def test_tabla_por_dia_cuenta_cada_dia_una_sola_vez():
+    filas = []
+    for i in range(8):                                   # 8 días × 3 bloques
+        for j in range(3):
+            filas.append(dict(fecha=f"2026-10-{i + 1:02d}", gex_bruto_B=float(i), spx=float(i % 2),
+                              rango_sig_pct=1.0 - 0.1 * i + 0.01 * j))
+    x = pg.tabla_por_dia(pd.DataFrame(filas), "spx")
+    assert int(x[["dias_pred_alto", "dias_pred_bajo"]].sum().sum()) == 8             # días, no bloques
+    assert (x["objetivo_pred_alto"] < x["objetivo_pred_bajo"]).all()                 # más gamma, menos rango
+    with pytest.raises(ValueError):
+        pg.tabla_por_dia(pd.DataFrame(filas[:6]), "spx")

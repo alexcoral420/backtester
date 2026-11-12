@@ -241,3 +241,53 @@ def relacion_por_grupo(t: pd.DataFrame, grupo: str, pred: str, obj: str, minimo:
         if len(x) >= minimo and x[pred].nunique() > 1 and x[obj].nunique() > 1:
             sal[g] = x[pred].corr(x[obj], method="spearman")
     return pd.Series(sal, dtype=float)
+
+
+def relacion_parcial_por_grupo(t: pd.DataFrame, grupo: str, pred: str, obj: str, control: str,
+                               minimo: int = 5) -> pd.Series:
+    """Spearman PARCIAL de `pred` contra `obj` dentro de cada grupo, descontando `control`: lo que queda de
+    la relación cuando el control ya está contado. r = (r_po − r_pc·r_oc) / √((1 − r_pc²)(1 − r_oc²)), con las
+    tres correlaciones de rangos. Si el control ordena igual que `pred` o que `obj` (|r| = 1) no queda nada
+    que medir: ese grupo sale nan, no 0."""
+    sal = {}
+    for g, x in t.groupby(grupo):
+        x = x[[pred, obj, control]].dropna()
+        if len(x) < minimo or min(x[c].nunique() for c in (pred, obj, control)) < 2:
+            continue
+        r = x.rank().corr()
+        po, pc, oc = r.at[pred, obj], r.at[pred, control], r.at[obj, control]
+        resto = (1 - pc**2) * (1 - oc**2)
+        sal[g] = (po - pc * oc) / np.sqrt(resto) if resto > 1e-12 else np.nan
+    return pd.Series(sal, dtype=float)
+
+
+def sin_un_dia(t: pd.DataFrame, grupo: str, pred: str, obj: str, dia: str = "fecha") -> tuple:
+    """(mínimo, máximo) de la mediana por grupo de relacion_por_grupo al quitar UN día cada vez: cuánto
+    depende el resultado de un solo día."""
+    medianas = [relacion_por_grupo(t[t[dia] != d], grupo, pred, obj).median() for d in t[dia].unique()]
+    return float(np.nanmin(medianas)), float(np.nanmax(medianas))
+
+
+def tabla_por_dia(t: pd.DataFrame, control: str, pred: str = "gex_bruto_B", obj: str = "rango_sig_pct",
+                  dia: str = "fecha") -> pd.DataFrame:
+    """Mismo `control`, distinto `pred`, contando DÍAS de verdad: una fila por día (la mediana de sus bloques),
+    y cada día se clasifica alto / bajo contra la mediana de los DEMÁS días (sin el propio).
+    Devuelve, por nivel del control: la mediana del objetivo con pred alto y bajo, y cuántos días hay en cada
+    celda. Un día está en una sola celda."""
+    d = t.groupby(dia)[[pred, control, obj]].median().dropna()
+    if len(d) < 4:
+        raise ValueError("tabla_por_dia necesita al menos 4 días")
+
+    def alto(col):
+        return np.array([d[col].iloc[i] > d[col].drop(d.index[i]).median() for i in range(len(d))])
+
+    d["p"], d["c"] = np.where(alto(pred), "alto", "bajo"), np.where(alto(control), "alto", "bajo")
+    filas = []
+    for c in ("alto", "bajo"):
+        fila = {"control": c}
+        for p in ("alto", "bajo"):
+            x = d[(d["c"] == c) & (d["p"] == p)]
+            fila[f"objetivo_pred_{p}"] = float(x[obj].median()) if len(x) else np.nan
+            fila[f"dias_pred_{p}"] = len(x)
+        filas.append(fila)
+    return pd.DataFrame(filas).set_index("control")

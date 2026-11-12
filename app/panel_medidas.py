@@ -108,8 +108,9 @@ if rg is not None:
     c = res_rg["comparacion"]
     k2.metric("Error del straddle contra el rango siguiente · MEDIDO",
               f"{c.at['impl_pct', 'error_medio']:.2f}% del SPX",
-              f"ingenuo {c.at['rango_hoy_pct', 'error_medio']:.2f} · gana {res_rg['gana']} de "
-              f"{res_rg['episodios']} episodios (orientativo)", delta_color="off")
+              f"ingenuo {c.at['rango_hoy_pct', 'error_medio']:.2f} · error mediano "
+              f"{c.at['impl_pct', 'error_mediano']:.2f} contra {c.at['rango_hoy_pct', 'error_mediano']:.2f} · "
+              "orientativo", delta_color="off")
 if ver is not None:
     k3.metric("Error de la gamma recalculada · MODELO", f"{ver['err_recalculada'].median():.1f}% por zona",
               f"foto vieja {ver['err_vieja'].median():.1f}% · mejor en "
@@ -117,8 +118,10 @@ if ver is not None:
 res_loc = vm.resumen_local(loc) if loc is not None else None
 if loc is not None:
     g = res_loc.loc["gex_bruto_B"]
-    k4.metric("Gamma actual (MODELO) vs rango 30 min (MEDIDO)", f"{g['entre_dias']:+.2f} entre días",
-              f"{g['dentro_del_dia']:+.2f} dentro del día ({int(g['dias'])} días, orientativo)", delta_color="off")
+    cp = vm.control_precio(loc)
+    k4.metric("Gamma actual (MODELO) vs rango 30 min, descontando el nivel del SPX", f"{cp['parcial']:+.2f}",
+              f"sin descontar {g['entre_dias']:+.2f} · el SPX solo {cp['spx']:+.2f} · sin evidencia",
+              delta_color="off")
 
 tab_rango, tab_gamma, tab_ver, tab_intra = st.tabs(
     ["Rango implícito", "Gamma por precio", "Verificación", "Intradía"])
@@ -131,10 +134,10 @@ with tab_rango:
         dias = [corto(f) for f in rg["sig"]]
         fig = go.Figure()
         fig.add_trace(go.Bar(
-            x=dias, y=rg["mov_sig_pct"], name="|movimiento| cierre → cierre del día (MEDIDO)",
+            x=dias, y=rg["pago_sig_pct"], name="lo que el straddle pagó: |cierre del día − strike| (MEDIDO)",
             marker=dict(color=AZUL, line=dict(color=SUPERFICIE, width=2)),
             customdata=np.column_stack([rg["rango_sig_pct"], rg["fecha"]]),
-            hovertemplate=("%{x}<br>movimiento %{y:.2f}% · rango del día %{customdata[0]:.2f}%"
+            hovertemplate=("%{x}<br>|cierre − strike| %{y:.2f}% · rango del día %{customdata[0]:.2f}%"
                            "<extra></extra>")))
         fig.add_trace(go.Scatter(
             x=dias, y=rg["impl_pct"], name="straddle ATM de la víspera (MEDIDO)", mode="lines+markers",
@@ -145,23 +148,32 @@ with tab_rango:
                            "<br>%{customdata[0]:.1f} pts, bid/ask %{customdata[1]:.1f} pts<extra></extra>")))
         fig.update_xaxes(type="category", tickangle=-45, title_text="día (el straddle es el del cierre anterior)")
         fig.update_yaxes(title_text="% del SPX", rangemode="tozero")
-        base_layout(fig, 430, title="Lo que el mercado cobraba la víspera contra lo que el SPX se movió · MEDIDO")
+        base_layout(fig, 430, title="Lo que el straddle costaba la víspera contra lo que pagó · MEDIDO")
         st.plotly_chart(fig, width="stretch")
 
         cal = res_rg["calibracion"]
         st.caption(
-            f"{res_rg['dias']} días. El movimiento fue en promedio {cal['razon_media']:.2f} veces el straddle "
-            f"(mediana {cal['razon_mediana']:.2f}); {cal['pct_dentro']:.0f}% de los días quedó por debajo "
-            f"(con precio justo y movimientos normales ≈ 57%). Barra por encima de la línea = el día se movió más de lo que el mercado "
-            f"cobraba.")
+            f"{res_rg['dias']} días. El straddle pagó en promedio {cal['razon_media']:.2f} veces lo que costaba "
+            f"(mediana {cal['razon_mediana']:.2f}); {cal['pct_dentro']:.0f}% de los días pagó menos "
+            f"(con precio justo y movimientos normales ≈ 57%). Barra por encima de la línea = pagó más de lo que "
+            f"costaba. La cotización es la del cierre de las opciones (16:15), 15 minutos después del cierre del "
+            f"SPX: por eso el pago se mide desde el strike y no desde el cierre de las 16:00.")
         t = res_rg["comparacion"].copy()
         t.insert(0, "clase", [rotulo(i) for i in t.index])
         t.index = [vm.NOMBRE[i] for i in t.index]
         st.dataframe(t.rename(columns={"n": "días", "spearman": "Spearman con el rango siguiente",
-                                       "error_medio": "error medio (% del SPX)"}).round(2), width="stretch")
-        st.caption(f"El straddle le gana al rango de hoy en {res_rg['gana']} de {res_rg['episodios']} episodios de "
-                   "volatilidad (el tamaño honesto de la muestra): orientativo, no evidencia. El GEX neto es "
-                   "**SUPUESTO** y va solo de referencia; con signo no tiene escala, por eso no tiene error.")
+                                       "error_medio": "error medio (% del SPX)",
+                                       "error_mediano": "error mediano (% del SPX)"}).round(2), width="stretch")
+        rb = res_rg["robustez"]
+        m2, sm = rb.loc["segunda mitad"], rb.iloc[1]
+        st.caption(
+            f"**Orientativo, no evidencia.** La ventaja del straddle está en el error MEDIO, que lo mueven los días "
+            f"grandes. En el error mediano no hay ventaja, y por días gana {int(rb.at['todo', 'dias_gana'])} de "
+            f"{int(rb.at['todo', 'dias'])}; por episodios de volatilidad, {res_rg['gana']} de {res_rg['episodios']}. "
+            f"Sin los dos días de mayor rango el error medio queda {sm['medio_pred']:.2f} contra {sm['medio_ing']:.2f}. "
+            f"En la segunda mitad de la ventana ({int(m2['dias'])} días) el straddle gana {int(m2['dias_gana'])} días "
+            f"y su error mediano es {m2['mediano_pred']:.2f} contra {m2['mediano_ing']:.2f} del ingenuo. El GEX neto "
+            "es **SUPUESTO** y va solo de referencia; con signo no tiene escala, por eso no tiene error.")
 
 # ---------------------------------------------------------------- 2. gamma por precio (MODELO; neto SUPUESTO aparte)
 with tab_gamma:
@@ -286,16 +298,18 @@ with tab_intra:
             fig.add_vline(x=0, line=dict(color=TINTA_SUAVE, width=1), row=1, col=i)
             fig.update_xaxes(title_text="Spearman con el rango de los 30 min siguientes", range=[-0.75, 0.75],
                              row=1, col=i)
-        base_layout(fig, 360, title="¿Qué anticipa el rango de los próximos 30 minutos? · naranja = MEDIDO, "
+        base_layout(fig, 400, title="¿Qué anticipa el rango de los próximos 30 minutos? · naranja = MEDIDO, "
                                     "violeta punteado = MODELO")
         st.plotly_chart(fig, width="stretch")
         g = res_loc.loc["gex_bruto_B"]
         st.caption(
             f"{len(loc)} bloques de 30 min en {loc['fecha'].nunique()} días; el tamaño honesto de la muestra son "
-            f"los días. **Entre días** (misma franja): más gamma bruta en el precio actual va con menos rango "
-            f"({g['entre_dias']:+.2f}, mismo signo en {int(g['franjas_mismo_signo'])} de {int(g['franjas'])} "
-            f"franjas), de tamaño parecido al ingenuo y al straddle y de signo opuesto. **Dentro del día** no hay evidencia de relación "
-            f"({g['dentro_del_dia']:+.2f}; {int(g['dias_negativos'])} de {int(g['dias'])} días negativos): con esta muestra no sirve "
-            "para elegir el momento. La gamma escala con 1/volatilidad, así que parte de esto es la volatilidad "
-            "implícita leída de otra forma. Orientativo, no evidencia. El straddle es uno por día: no tiene corte "
-            "dentro del día.")
+            f"los días. **La gamma bruta no agrega nada sobre mirar el índice.** Entre días (misma franja) va con "
+            f"menos rango ({g['entre_dias']:+.2f}), pero sube y baja con el precio (Spearman {cp['gamma_con_spx']:+.2f} "
+            f"con el nivel del SPX), y el nivel del SPX solo, sin opciones, ordena mejor ({cp['spx']:+.2f}). Al "
+            f"descontar el nivel del SPX a la gamma le queda {cp['parcial']:+.2f} (local ±50 pts: "
+            f"{cp['parcial_local']:+.2f}). Las {int(g['franjas'])} franjas no son pruebas independientes: la gamma casi "
+            f"no cambia dentro del día, así que repiten la misma ordenación de {cp['dias']} días. **Dentro del día** "
+            f"no hay evidencia de relación ({g['dentro_del_dia']:+.2f}; {int(g['dias_negativos'])} de {int(g['dias'])} "
+            "días negativos). El nivel del SPX tampoco es una regla: en estas seis semanas el índice cayó y la "
+            "volatilidad subió a la vez. **Sin evidencia.** El straddle es uno por día: no tiene corte dentro del día.")

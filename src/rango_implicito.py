@@ -17,6 +17,13 @@ Reglas de validación (las de validar_gex, no negociables):
   - los días no son independientes (la volatilidad se agrupa): se reportan EPISODIOS de volatilidad
     (rachas del objetivo sobre / bajo su mediana) y ese es el tamaño honesto de la muestra.
 
+Hora de la cotización (medido el 2026-11-12 en los statistics en caché): el bid/ask "de cierre" de OPRA es
+el del cierre de las opciones (16:15 NY), publicado a las 16:23 y repetido igual a las 17:30-17:45. El SPX
+cierra a las 16:00: hay 15 minutos de desfase, y cuando el mercado se mueve en ese rato el forward queda lejos
+del cierre (−36,6 pts el 10-29). Por eso (a) el strike sale del forward de las propias opciones, (b) la
+calibración mide lo que el straddle PAGA, |cierre siguiente − K|, y no el movimiento desde el cierre de las
+16:00, y (c) contra el rango de hoy el straddle corre con 15 minutos de ventaja: está dicho, no corregido.
+
 Incertidumbre de la medición, siempre al lado del número: `ancho` (suma de los dos bid/ask: el straddle
 está entre straddle − ancho/2 y straddle + ancho/2), `dispersion` del forward y `dist_FK` (|F − K|).
 """
@@ -71,16 +78,18 @@ def escala_sin_mirar(pred: pd.Series, obj: pd.Series) -> pd.Series:
 
 
 def comparar(t: pd.DataFrame, objetivo: str, predictores: list) -> pd.DataFrame:
-    """Por predictor: n, Spearman con el objetivo y error absoluto medio (escalado sin mirar; nan si el
-    predictor tiene valores <= 0, como el GEX con signo)."""
+    """Por predictor: n, Spearman con el objetivo y error absoluto medio y MEDIANO (escalado sin mirar; nan
+    si el predictor tiene valores <= 0, como el GEX con signo). El mediano va siempre al lado: un par de días
+    enormes mueven el medio y no dicen nada del día típico."""
     filas = []
     for col in predictores:
         s = t[[col, objetivo]].dropna()
-        error = np.nan
+        error = mediano = np.nan
         if len(s) >= 3 and (s[col] > 0).all():
-            error = float((escala_sin_mirar(s[col], s[objetivo]) - s[objetivo]).abs().mean())
+            e = (escala_sin_mirar(s[col], s[objetivo]) - s[objetivo]).abs()
+            error, mediano = float(e.mean()), float(e.median())
         filas.append(dict(predictor=col, n=len(s), spearman=s[col].corr(s[objetivo], method="spearman"),
-                          error_medio=error))
+                          error_medio=error, error_mediano=mediano))
     return pd.DataFrame(filas).set_index("predictor")
 
 
@@ -106,11 +115,31 @@ def duelo_por_episodio(t: pd.DataFrame, objetivo: str, pred: str, ingenuo: str) 
     return e
 
 
-def calibracion(t: pd.DataFrame, mov: str = "mov_sig_pct", impl: str = "impl_pct") -> dict:
-    """¿El straddle cobra lo que después se mueve? razón = |movimiento cierre→cierre| / straddle.
+def calibracion(t: pd.DataFrame, mov: str = "pago_sig_pct", impl: str = "impl_pct") -> dict:
+    """¿El straddle cobra lo que después paga? razón = |cierre siguiente − K| / straddle (pago_sig_pct: lo que
+    el straddle paga de verdad; medirlo desde el cierre de las 16:00 contaría como "día siguiente" lo que el
+    mercado ya se había movido cuando se cotizó).
     Sin escalar ni ajustar nada: con precio justo la media ronda 1 y ~57% de los días quedan por debajo
     (P(|Z| < E|Z|) de una normal)."""
     s = t[[mov, impl]].dropna()
     razon = s[mov] / s[impl]
     return dict(n=len(s), razon_media=float(razon.mean()), razon_mediana=float(razon.median()),
                 pct_dentro=float(100 * (razon < 1).mean()))
+
+
+def robustez(t: pd.DataFrame, objetivo: str, pred: str, ingenuo: str, fuera: int = 2) -> pd.DataFrame:
+    """¿De qué depende la ventaja? La misma comparación en cuatro cortes: todo, sin los `fuera` días de mayor
+    objetivo, y cada mitad de la ventana. Por corte: días, error medio y mediano de cada uno (escalado sin
+    mirar DENTRO del corte) y en cuántos días el error de `pred` fue menor."""
+    s = t[["fecha", objetivo, pred, ingenuo]].dropna().sort_values("fecha").reset_index(drop=True)
+    mitad = len(s) // 2
+    cortes = [("todo", s), (f"sin los {fuera} días de mayor objetivo", s.drop(s[objetivo].nlargest(fuera).index)),
+              ("primera mitad", s.iloc[:mitad]), ("segunda mitad", s.iloc[mitad:])]
+    filas = []
+    for nombre, x in cortes:
+        e_p = (escala_sin_mirar(x[pred], x[objetivo]) - x[objetivo]).abs()
+        e_i = (escala_sin_mirar(x[ingenuo], x[objetivo]) - x[objetivo]).abs()
+        filas.append(dict(corte=nombre, dias=len(x), medio_pred=float(e_p.mean()), medio_ing=float(e_i.mean()),
+                          mediano_pred=float(e_p.median()), mediano_ing=float(e_i.median()),
+                          dias_gana=int((e_p < e_i).sum())))
+    return pd.DataFrame(filas).set_index("corte")

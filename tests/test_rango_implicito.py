@@ -92,6 +92,25 @@ def test_duelo_por_episodio_cuenta_episodios_no_dias():
 
 
 def test_calibracion():
-    t = pd.DataFrame(dict(mov_sig_pct=[0.5, 1.0, 3.0, 0.5], impl_pct=[1.0, 1.0, 1.0, 1.0]))
+    t = pd.DataFrame(dict(pago_sig_pct=[0.5, 1.0, 3.0, 0.5], impl_pct=[1.0, 1.0, 1.0, 1.0]))
     c = ri.calibracion(t)
     assert c == dict(n=4, razon_media=1.25, razon_mediana=0.75, pct_dentro=50.0)
+
+
+def test_comparar_da_el_error_mediano_al_lado_del_medio():
+    """Un día enorme mueve el error medio y no el mediano: los dos van siempre juntos."""
+    t = pd.DataFrame(dict(obj=[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 20.0], casi_plano=[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.001]))
+    c = ri.comparar(t, "obj", ["casi_plano"])
+    assert c.at["casi_plano", "error_mediano"] == pytest.approx(0.0, abs=0.01) and c.at["casi_plano", "error_medio"] > 2
+
+
+def test_robustez_muestra_si_la_ventaja_es_de_pocos_dias():
+    fechas = pd.date_range("2026-10-01", periods=12).strftime("%Y-%m-%d")
+    obj = [1.0, 1.1, 0.9, 1.0, 1.2, 0.8, 1.0, 1.1, 0.9, 1.0, 9.0, 8.0]
+    t = pd.DataFrame(dict(fecha=fechas, obj=obj, pred=[1.0] * 10 + [9.0, 8.0], ing=[1.0, 1.1, 0.9, 1.0, 1.2, 0.8] * 2))
+    r = ri.robustez(t, "obj", "pred", "ing")
+    assert list(r.index) == ["todo", "sin los 2 días de mayor objetivo", "primera mitad", "segunda mitad"]
+    assert r["dias"].tolist() == [12, 10, 6, 6]
+    assert r.at["todo", "medio_pred"] < r.at["todo", "medio_ing"]                    # con los dos días grandes gana
+    sin = r.loc["sin los 2 días de mayor objetivo"]
+    assert sin["medio_pred"] >= sin["medio_ing"]                                     # sin ellos, ya no

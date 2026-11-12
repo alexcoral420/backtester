@@ -29,7 +29,7 @@ RUTA_VERIFICACION = "data/validacion/gamma_verificacion.csv"
 RUTA_LOCAL = "data/validacion/gamma_local.csv"
 
 MEDIDAS = ["straddle", "ancho", "impl_pct", "impl_prev_pct", "rango_hoy_pct", "rango_sig_pct", "mov_hoy_pct",
-           "mov_sig_pct", "rango_prev_pct", "mov_pct", "mov_abs", "S", "S_sig", "spx", "horas", "forward",
+           "mov_sig_pct", "pago_sig_pct", "rango_prev_pct", "mov_pct", "mov_abs", "S", "S_sig", "spx", "horas", "forward",
            "dispersion", "K", "dist_FK", "call", "put"]
 MODELO = ["gex_bruto", "gex_bruto_c", "gex_bruto_p", "gex_bruto_B", "gex_local_B", "err_recalculada", "err_vieja",
           "sesgo", "top5_que_siguen", "rho_recalculada", "rho_vieja", "cubierto_pct", "cobertura_pct", "foto",
@@ -41,7 +41,7 @@ NOMBRE = {"impl_pct": "straddle de la víspera", "impl_prev_pct": "straddle de l
           "rango_hoy_pct": "rango de hoy (ingenuo)", "mov_hoy_pct": "|movimiento| de hoy (ingenuo)",
           "rango_prev_pct": "rango de los 30 min previos (ingenuo)", "gex_sup_B": "GEX neto con signo",
           "gex_abs_B": "|GEX neto|", "gex_bruto_B": "gamma bruta en el precio actual",
-          "gex_local_B": "gamma bruta a ±50 pts del precio"}
+          "gex_local_B": "gamma bruta a ±50 pts del precio", "spx": "nivel del SPX (ingenuo)"}
 
 
 class SinDatos(Exception):
@@ -81,7 +81,8 @@ def resumen_rango(t: pd.DataFrame) -> dict:
     comp = ri.comparar(t, "rango_sig_pct", ["impl_pct", "rango_hoy_pct", "gex_sup_B", "gex_abs_B"])
     duelo = ri.duelo_por_episodio(t, "rango_sig_pct", "impl_pct", "rango_hoy_pct")
     return dict(comparacion=comp, episodios=len(duelo), gana=int((duelo["gana"] == "impl_pct").sum()),
-                calibracion=ri.calibracion(t), dias=len(t))
+                calibracion=ri.calibracion(t), dias=len(t),
+                robustez=ri.robustez(t, "rango_sig_pct", "impl_pct", "rango_hoy_pct"))
 
 
 # ---------------------------------------------------------------- gamma por precio (MODELO)
@@ -143,7 +144,7 @@ def resumen_local(t: pd.DataFrame) -> pd.DataFrame:
     """Por predictor: Spearman mediano contra el rango de los 30 min siguientes, entre días (misma franja)
     y dentro del día, con cuántos grupos tuvo cada corte."""
     filas = []
-    for col in ("gex_bruto_B", "gex_local_B", "rango_prev_pct", "impl_prev_pct"):
+    for col in ("gex_bruto_B", "gex_local_B", "spx", "rango_prev_pct", "impl_prev_pct"):
         f = pg.relacion_por_grupo(t, "t", col, "rango_sig_pct")
         d = pg.relacion_por_grupo(t, "fecha", col, "rango_sig_pct")
         filas.append(dict(predictor=col, clase=clase(col), entre_dias=f.median(), franjas=len(f),
@@ -151,3 +152,20 @@ def resumen_local(t: pd.DataFrame) -> pd.DataFrame:
                           dentro_del_dia=d.median() if len(d) else np.nan, dias=len(d),
                           dias_negativos=int((d < 0).sum())))
     return pd.DataFrame(filas).set_index("predictor")
+
+
+def control_precio(t: pd.DataFrame) -> dict:
+    """¿La gamma bruta dice algo que el NIVEL del SPX no diga ya? Entre días, misma franja (medianas por franja):
+    gamma_con_spx  Spearman de la gamma bruta con el nivel del SPX
+    spx / gamma    Spearman de cada uno con el rango de los 30 min siguientes
+    parcial        lo que queda de la gamma al descontar el nivel del SPX (y de la gamma local)
+    sin_un_dia     (mín, máx) de la mediana de la gamma al quitar un día cada vez"""
+    def med(serie):
+        return float(serie.median())
+    obj = "rango_sig_pct"
+    return dict(gamma_con_spx=med(pg.relacion_por_grupo(t, "t", "gex_bruto_B", "spx")),
+                spx=med(pg.relacion_por_grupo(t, "t", "spx", obj)),
+                gamma=med(pg.relacion_por_grupo(t, "t", "gex_bruto_B", obj)),
+                parcial=med(pg.relacion_parcial_por_grupo(t, "t", "gex_bruto_B", obj, "spx")),
+                parcial_local=med(pg.relacion_parcial_por_grupo(t, "t", "gex_local_B", obj, "spx")),
+                sin_un_dia=pg.sin_un_dia(t, "t", "gex_bruto_B", obj), dias=int(t["fecha"].nunique()))

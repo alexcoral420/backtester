@@ -92,8 +92,44 @@ def test_resumen_local_separa_entre_dias_y_dentro_del_dia():
         for j in range(6):
             filas.append(dict(fecha=f"2026-10-{i + 1:02d}", t=f"1{j}:00", gex_bruto_B=10 - i + 0.01 * ((j * 7) % 6),
                               gex_local_B=5 - i, rango_prev_pct=0.1 + 0.01 * i, impl_prev_pct=0.5 + 0.1 * i,
-                              rango_sig_pct=0.1 * (i + 1) + 0.001 * ((j * 5) % 6)))
+                              spx=7800.0 - 50 * i + j, rango_sig_pct=0.1 * (i + 1) + 0.001 * ((j * 5) % 6)))
     r = vm.resumen_local(pd.DataFrame(filas))
+    assert r.at["spx", "clase"] == "medido" and r.at["spx", "entre_dias"] == pytest.approx(-1.0)   # el ingenuo va
     assert r.at["gex_bruto_B", "entre_dias"] == pytest.approx(-1.0) and r.at["gex_bruto_B", "franjas"] == 6
     assert r.at["gex_bruto_B", "clase"] == "modelo" and r.at["rango_prev_pct", "clase"] == "medido"
     assert np.isnan(r.at["impl_prev_pct", "dentro_del_dia"])            # un valor por día: sin corte dentro del día
+
+
+def _bloques_con_precio(aporta: bool):
+    """60 días × 4 franjas, con semilla fija. El rango depende del nivel del SPX y de un ruido propio; la gamma
+    es el SPX más un extra por día que entra (o no) también en el rango."""
+    rng = np.random.default_rng(7)
+    extra, ruido = rng.normal(size=60), rng.normal(size=60)
+    filas = []
+    for i in range(60):
+        for j in range(4):
+            spx = 7800.0 - 10 * i
+            filas.append(dict(fecha=str(pd.Timestamp("2026-08-03") + pd.Timedelta(days=i))[:10], t=f"1{j}:00",
+                              spx=spx, gex_local_B=spx / 100 + 2 * extra[i], gex_bruto_B=spx / 10 + 20 * extra[i],
+                              rango_sig_pct=(1.0 - spx / 10000 + 0.01 * ruido[i] + 0.0001 * j
+                                             - (0.02 * extra[i] if aporta else 0.0))))
+    return pd.DataFrame(filas)
+
+
+def test_control_precio_distingue_una_gamma_que_solo_repite_el_precio():
+    """Las dos gammas se parecen al SPX y las dos salen negativas sin descontar. Descontado el precio, la que
+    no aporta se queda sin nada y la que aporta conserva su relación."""
+    repite, aporta = vm.control_precio(_bloques_con_precio(False)), vm.control_precio(_bloques_con_precio(True))
+    assert repite["gamma"] < -0.5 and aporta["gamma"] < -0.5 and 0.5 < repite["gamma_con_spx"] < 1.0
+    assert repite["spx"] < -0.8
+    assert abs(repite["parcial"]) < 0.3                       # el rango sigue al precio: a la gamma no le queda nada
+    assert aporta["parcial"] < -0.5 and aporta["dias"] == 60
+    lo, hi = repite["sin_un_dia"]
+    assert lo <= repite["gamma"] <= hi
+
+
+def test_parcial_no_inventa_cuando_el_predictor_es_el_control():
+    from src import perfil_gamma as pg
+    t = _bloques_con_precio(False)
+    t["copia"] = t["spx"] * 2                                 # misma ordenación que el control
+    assert pg.relacion_parcial_por_grupo(t, "t", "copia", "rango_sig_pct", "spx").isna().all()
