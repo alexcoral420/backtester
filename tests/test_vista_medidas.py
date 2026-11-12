@@ -41,6 +41,23 @@ def test_clase_grita_con_columna_sin_clasificar():
         vm.clase(col)                                   # todo lo que el panel nombra tiene clase
 
 
+def test_toda_columna_de_los_archivos_esta_clasificada(monkeypatch):
+    """Las columnas de los acumuladores reales y de las tablas que arma la vista: clase o clave, nada suelto."""
+    from src import perfil_gamma as pg
+    monkeypatch.chdir(RAIZ)
+    tablas = ((vm.RUTA_RANGO, vm.CLAVES), (vm.RUTA_LOCAL, vm.CLAVES), (vm.RUTA_VERIFICACION, vm.CLAVES_VERIFICACION))
+    for ruta, claves in tablas:
+        if not os.path.exists(ruta):
+            continue
+        for col in pd.read_csv(ruta, nrows=1).columns:
+            if col not in claves:
+                vm.clase(col)
+    for col in list(vm.mapa(_perfil(), 7400.0).columns) + list(vm.totales_por_spot(_perfil()).columns):
+        vm.clase(col)
+    for col in ("gex_bruto", "gex_bruto_c", "gex_bruto_p", "gex_sup", "recalculada"):
+        assert vm.clase(col) == pg.clase(col)            # los dos contratos dicen lo mismo
+
+
 def _perfil():
     filas = [dict(spot=s, zona=z, gex_bruto=1e9 * (1 + (z == s)), gex_sup=1e9 * (1 if z > s else -1), S=7500.0,
                   cobertura_pct=95.0) for s in (7400.0, 7500.0) for z in (7375.0, 7400.0, 7500.0, 7800.0)]

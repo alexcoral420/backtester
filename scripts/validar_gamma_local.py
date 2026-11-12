@@ -28,6 +28,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import TASA_LIBRE_RIESGO                                   # noqa: E402
 from src import perfil_gamma as pg                                     # noqa: E402
+from src import vista_medidas as vm                                    # noqa: E402
 from src.odte import vista                                             # noqa: E402
 from src.simbolos import HORA_FOTO                                     # noqa: E402
 
@@ -82,7 +83,7 @@ print("\n--- A. Misma FRANJA horaria, entre días (quita el efecto de la hora): 
 filas = []
 for col in PREDICTORES:
     r = pg.relacion_por_grupo(t, "t", col, "rango_sig_pct")
-    filas.append(dict(predictor=col, clase="medido" if col.endswith("pct") else "modelo", franjas=len(r),
+    filas.append(dict(predictor=col, clase=vm.clase(col), franjas=len(r),
                       mediana=r.median(), negativas=int((r < 0).sum()), minimo=r.min(), maximo=r.max()))
 print(pd.DataFrame(filas).round(2).to_string(index=False))
 

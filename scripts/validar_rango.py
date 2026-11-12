@@ -109,5 +109,6 @@ for objetivo, ingenuo, nombre in (("rango_sig_pct", "rango_hoy_pct", "RANGO del 
     print(f"  Episodios de volatilidad (tamaño honesto de la muestra): {len(e)}. "
           f"El straddle le gana al ingenuo en {gana} de {len(e)}.")
     print(e.round(3).to_string(index=False))
-print("\n  gex_sup_B usa el signo SUPUESTO (hipótesis nula): su Spearman negativo sería 'más GEX, menos rango'.")
+print("\n  gex_sup_B y gex_abs_B (su valor absoluto) usan el signo SUPUESTO (hipótesis nula): el Spearman"
+      "\n  negativo de gex_sup_B sería 'más GEX, menos rango'.")
 print("  Con pocos episodios esto es orientativo, no evidencia.")

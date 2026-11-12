@@ -106,9 +106,10 @@ if rg is not None:
     k1.metric(f"Straddle al cierre del {corto(u['fecha'])} · MEDIDO", f"{u['impl_pct']:.2f}% del SPX",
               f"{u['straddle']:.0f} pts ± {u['ancho'] / 2:.1f}", delta_color="off")
     c = res_rg["comparacion"]
-    k2.metric("Error contra el rango siguiente · MEDIDO", f"{c.at['impl_pct', 'error_medio']:.2f}% del SPX",
+    k2.metric("Error del straddle contra el rango siguiente · MEDIDO",
+              f"{c.at['impl_pct', 'error_medio']:.2f}% del SPX",
               f"ingenuo {c.at['rango_hoy_pct', 'error_medio']:.2f} · gana {res_rg['gana']} de "
-              f"{res_rg['episodios']} episodios", delta_color="off")
+              f"{res_rg['episodios']} episodios (orientativo)", delta_color="off")
 if ver is not None:
     k3.metric("Error de la gamma recalculada · MODELO", f"{ver['err_recalculada'].median():.1f}% por zona",
               f"foto vieja {ver['err_vieja'].median():.1f}% · mejor en "
@@ -116,8 +117,8 @@ if ver is not None:
 res_loc = vm.resumen_local(loc) if loc is not None else None
 if loc is not None:
     g = res_loc.loc["gex_bruto_B"]
-    k4.metric("Gamma actual vs rango 30 min · MODELO", f"{g['entre_dias']:+.2f} entre días",
-              f"{g['dentro_del_dia']:+.2f} dentro del día ({int(g['dias'])} días)", delta_color="off")
+    k4.metric("Gamma actual (MODELO) vs rango 30 min (MEDIDO)", f"{g['entre_dias']:+.2f} entre días",
+              f"{g['dentro_del_dia']:+.2f} dentro del día ({int(g['dias'])} días, orientativo)", delta_color="off")
 
 tab_rango, tab_gamma, tab_ver, tab_intra = st.tabs(
     ["Rango implícito", "Gamma por precio", "Verificación", "Intradía"])
@@ -151,7 +152,7 @@ with tab_rango:
         st.caption(
             f"{res_rg['dias']} días. El movimiento fue en promedio {cal['razon_media']:.2f} veces el straddle "
             f"(mediana {cal['razon_mediana']:.2f}); {cal['pct_dentro']:.0f}% de los días quedó por debajo "
-            f"(con precio justo ≈ 57%). Barra por encima de la línea = el día se movió más de lo que el mercado "
+            f"(con precio justo y movimientos normales ≈ 57%). Barra por encima de la línea = el día se movió más de lo que el mercado "
             f"cobraba.")
         t = res_rg["comparacion"].copy()
         t.insert(0, "clase", [rotulo(i) for i in t.index])
@@ -185,7 +186,7 @@ with tab_gamma:
                                        ("recalculada", VIOLETA, f"recalculada en {spot:,.0f}")):
                 fig.add_trace(go.Bar(
                     x=m.index, y=m[col], name=f"gamma bruta {nombre} (MODELO)", width=9,
-                    marker=dict(color=color, pattern=patron_clase(vm.clase("gex_bruto")),
+                    marker=dict(color=color, pattern=patron_clase(vm.clase(col)),
                                 line=dict(color=SUPERFICIE, width=1)),
                     hovertemplate="zona %{x:.0f} · %{y:.2f} $B (MODELO, sin signo)<extra>" + nombre + "</extra>"))
             fig.add_vline(x=spot, line=dict(color=TINTA_SUAVE, width=1, dash="dot"),
@@ -226,8 +227,8 @@ with tab_gamma:
                         title="Neto con la hipótesis nula según el precio · SUPUESTO (no es un nivel medido)")
             st.plotly_chart(fs, width="stretch")
             st.caption("El neto es la resta de dos números grandes con un signo **SUPUESTO**: el precio donde "
-                       "cruza cero solo vale si el supuesto vale. El 4-nov era positivo y el día siguiente el SPX "
-                       "cayó 335 pts.")
+                       "cruza cero solo vale si el supuesto vale. Un caso, no una prueba: en la foto del 4-nov era "
+                       "positivo y el día siguiente el SPX cayó 335 pts.")
 
 # ---------------------------------------------------------------- 3. verificación (MODELO contra la foto real)
 with tab_ver:
@@ -242,7 +243,7 @@ with tab_ver:
                 marker=dict(size=10, color=color, symbol=simbolo, line=dict(color=color, width=2)),
                 customdata=np.column_stack([ver["foto"], ver["sig"], ver["mov_pct"]]),
                 hovertemplate=("%{customdata[0]} → %{customdata[1]} (SPX %{customdata[2]:+.2f}%)"
-                               "<br>" + nombre + ": error %{y:.1f}% del real<extra></extra>")))
+                               "<br>" + nombre + ": error %{y:.1f}% del real (MODELO)<extra></extra>")))
         fig.update_xaxes(title_text="|movimiento del SPX| entre las dos fotos, %", rangemode="tozero")
         fig.update_yaxes(title_text="error por zona, % de la gamma real (MODELO)", rangemode="tozero")
         base_layout(fig, 430, title="¿Cuánto se equivoca? Gamma de d llevada al cierre de d+1 contra la foto real "
@@ -251,10 +252,13 @@ with tab_ver:
         filas = []
         for nombre, mov in (("menos de 0,5%", 0.1), ("0,5% a 1%", 0.7), ("1% o más", 2.0)):
             e = vm.banda_error(ver, mov)
-            filas.append({"movimiento": nombre, "pares": e["n"], "recalculada, mediana %": e["err_recalculada"],
-                          "recalculada, peor %": e["peor"], "foto vieja, mediana %": e["err_vieja"]})
+            filas.append({"movimiento": nombre, "pares": e["n"],
+                          f"recalculada, mediana % [{rotulo('err_recalculada')}]": e["err_recalculada"],
+                          f"recalculada, peor % [{rotulo('err_recalculada')}]": e["peor"],
+                          f"foto vieja, mediana % [{rotulo('err_vieja')}]": e["err_vieja"]})
         st.dataframe(pd.DataFrame(filas).round(1), width="stretch", hide_index=True)
-        st.caption(f"{len(ver)} pares de fotos de días seguidos, mismas series y OI de d: solo cambia la gamma. Cada "
+        st.caption(f"Todo **MODELO** (gamma Black-Scholes · OI, sin signo) contra la gamma de la foto real. "
+                   f"{len(ver)} pares de fotos de días seguidos, mismas series y OI de d: solo cambia la gamma. Cada "
                    "foto reproduce su propia gamma guardada al recalcular en su precio (si no, el script se "
                    "detiene). El error no se corrige: corregirlo sería suponer cómo se mueve la volatilidad.")
 
@@ -265,15 +269,16 @@ with tab_intra:
     else:
         r = res_loc.iloc[::-1]
         nombres = [f"{vm.NOMBRE[i]} · {ROTULO[c]}" for i, c in zip(r.index, r["clase"])]
-        colores = [MODELO_MIXTO if c == "modelo" else MEDIDO_MIXTO for c in r["clase"]]
+        color_clase = {"modelo": MODELO_MIXTO, "medido": MEDIDO_MIXTO}     # una clase supuesta aquí debe gritar
+        colores = [color_clase[c] for c in r["clase"]]
         formas = [(patron_clase(c) or {}).get("shape", "") for c in r["clase"]]
+        trama = {k: v for k, v in patron_clase("modelo").items() if k != "shape"}
         fig = make_subplots(rows=1, cols=2, shared_yaxes=True, horizontal_spacing=0.06,
                             subplot_titles=("Entre días, misma franja horaria", "Dentro del mismo día"))
         for i, (col, grupos) in enumerate((("entre_dias", "franjas"), ("dentro_del_dia", "dias")), start=1):
             fig.add_trace(go.Bar(
                 y=nombres, x=r[col], orientation="h", width=0.55, showlegend=False,
-                marker=dict(color=colores, pattern=dict(shape=formas, fgcolor="rgba(255,255,255,0.6)",
-                                                        solidity=0.3, fillmode="overlay")),
+                marker=dict(color=colores, pattern=dict(shape=formas, **trama)),
                 text=[f"{v:+.2f}" if pd.notna(v) else "sin dato" for v in r[col]], textposition="outside",
                 cliponaxis=False, customdata=r[grupos],
                 hovertemplate="%{y}<br>Spearman mediano %{x:+.2f} (%{customdata} grupos)<extra></extra>"),
@@ -289,8 +294,8 @@ with tab_intra:
             f"{len(loc)} bloques de 30 min en {loc['fecha'].nunique()} días; el tamaño honesto de la muestra son "
             f"los días. **Entre días** (misma franja): más gamma bruta en el precio actual va con menos rango "
             f"({g['entre_dias']:+.2f}, mismo signo en {int(g['franjas_mismo_signo'])} de {int(g['franjas'])} "
-            f"franjas), parecido al ingenuo y al straddle. **Dentro del día** no hay relación "
-            f"({g['dentro_del_dia']:+.2f}; {int(g['dias_negativos'])} de {int(g['dias'])} días negativos): no sirve "
+            f"franjas), de tamaño parecido al ingenuo y al straddle y de signo opuesto. **Dentro del día** no hay evidencia de relación "
+            f"({g['dentro_del_dia']:+.2f}; {int(g['dias_negativos'])} de {int(g['dias'])} días negativos): con esta muestra no sirve "
             "para elegir el momento. La gamma escala con 1/volatilidad, así que parte de esto es la volatilidad "
             "implícita leída de otra forma. Orientativo, no evidencia. El straddle es uno por día: no tiene corte "
             "dentro del día.")

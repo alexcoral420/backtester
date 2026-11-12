@@ -29,10 +29,14 @@ RUTA_VERIFICACION = "data/validacion/gamma_verificacion.csv"
 RUTA_LOCAL = "data/validacion/gamma_local.csv"
 
 MEDIDAS = ["straddle", "ancho", "impl_pct", "impl_prev_pct", "rango_hoy_pct", "rango_sig_pct", "mov_hoy_pct",
-           "mov_sig_pct", "rango_prev_pct", "mov_pct", "S", "S_sig"]
+           "mov_sig_pct", "rango_prev_pct", "mov_pct", "mov_abs", "S", "S_sig", "spx", "horas", "forward",
+           "dispersion", "K", "dist_FK", "call", "put"]
 MODELO = ["gex_bruto", "gex_bruto_c", "gex_bruto_p", "gex_bruto_B", "gex_local_B", "err_recalculada", "err_vieja",
-          "sesgo", "top5_que_siguen"]
+          "sesgo", "top5_que_siguen", "rho_recalculada", "rho_vieja", "cubierto_pct", "cobertura_pct", "foto",
+          "recalculada"]                # foto / recalculada: las dos columnas de mapa() (gamma bruta por zona)
 SUPUESTAS = ["gex_sup", "gex_sup_B", "gex_abs_B"]
+CLAVES = ["fecha", "sig", "venc", "t", "spot", "zona"]      # identifican la fila, no son mediciones
+CLAVES_VERIFICACION = ["foto", "sig"]                       # en gamma_verificacion.csv 'foto' es la fecha de la foto
 NOMBRE = {"impl_pct": "straddle de la víspera", "impl_prev_pct": "straddle de la víspera",
           "rango_hoy_pct": "rango de hoy (ingenuo)", "mov_hoy_pct": "|movimiento| de hoy (ingenuo)",
           "rango_prev_pct": "rango de los 30 min previos (ingenuo)", "gex_sup_B": "GEX neto con signo",

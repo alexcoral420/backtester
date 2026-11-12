@@ -82,6 +82,6 @@ print(f"    total en la franja: {q['hoy'].sum():.1f} -> {q['manana'].sum():.1f} 
 
 print("\n--- 3. Neto con la hipótesis nula (SUPUESTO, $B) y bruto total (MODELO) por spot ---")
 tot = p.groupby("spot")[["gex_sup", "gex_bruto"]].sum() / 1e9
-tot["neto/bruto_%"] = 100 * tot["gex_sup"] / tot["gex_bruto"]
+tot["neto/bruto_% (SUPUESTO)"] = 100 * tot["gex_sup"] / tot["gex_bruto"]
 print(tot.round(1).to_string())
 print("    El neto es una resta de dos números grandes con signo SUPUESTO: no es un nivel medido.")
