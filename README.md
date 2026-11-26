@@ -1,5 +1,24 @@
 # backtester
+## Sobre este proyecto
 
+Herramienta de investigación propia sobre la microestructura de opciones del SPX:
+cálculo del GEX y los gamma walls desde la cadena cruda de Databento, y estudio del
+flujo intradía de las 0DTE. El objetivo era operativo: leer, cuando el precio llega a
+un nivel, si el posicionamiento del dealer lo hará frenar (barrera) o amplificar
+(trampolín).
+
+La conclusión honesta es que, con datos de cierre y tcbbo de OPRA, ese signo no se
+puede medir: entre el 98% y el 99,9% del posicionamiento en los walls es supuesto, el
+flujo diario es despreciable frente al inventario acumulado, y el agresor intradía no
+es identificable con los datos disponibles. Lo que sí quedó verificado: una valuación
+del GEX más correcta —OI completo, forward y dividendos medidos del propio mercado— y
+una gamma recalculable a otro precio con error controlado.
+
+Más que por sus conclusiones, el proyecto vale por su método. Cada número lleva su clase
+—MEDIDO, MODELO o SUPUESTO—, forzada en el código con tests que fallan si una columna no
+la declara. Toda hipótesis se valida fuera de muestra contra un predictor ingenuo, y los
+resultados negativos se registran en vez de esconderse. La pregunta nunca fue qué
+resultado quedaba lindo, sino cuál sobrevivía a la medición.
 Herramientas de investigación sobre opciones del SPX:
 
 - **GEX (gamma exposure) y gamma walls** a partir de la cadena de opciones de cierre de cada día (SPX mensuales y SPXW diarias/semanales).
