@@ -54,14 +54,19 @@ def test_toda_columna_de_los_archivos_esta_clasificada(monkeypatch):
                 vm.clase(col)
     for col in list(vm.mapa(_perfil(), 7400.0).columns) + list(vm.totales_por_spot(_perfil()).columns):
         vm.clase(col)
-    for col in ("gex_bruto", "gex_bruto_c", "gex_bruto_p", "gex_sup", "recalculada"):
+    for col in ("gex_bruto", "gex_bruto_c", "gex_bruto_p", "gex_sup", "recalculada", "gex_bruto_total",
+                "gex_sup_total"):
         assert vm.clase(col) == pg.clase(col)            # los dos contratos dicen lo mismo
 
 
 def _perfil():
     filas = [dict(spot=s, zona=z, gex_bruto=1e9 * (1 + (z == s)), gex_sup=1e9 * (1 if z > s else -1), S=7500.0,
                   cobertura_pct=95.0) for s in (7400.0, 7500.0) for z in (7375.0, 7400.0, 7500.0, 7800.0)]
-    return pd.DataFrame(filas)
+    p = pd.DataFrame(filas)
+    # totales de TODAS las zonas (rejilla los suma antes de recortar): aquí, una zona de puts que no se guardó
+    p["gex_bruto_total"] = p["spot"].map({7400.0: 8e9, 7500.0: 7e9})
+    p["gex_sup_total"] = p["spot"].map({7400.0: -3e9, 7500.0: -1e9})
+    return p
 
 
 def test_mapa_compara_foto_y_recalculada_en_el_tramo():
@@ -72,18 +77,55 @@ def test_mapa_compara_foto_y_recalculada_en_el_tramo():
         vm.mapa(_perfil(), 7412.0)
 
 
-def test_totales_por_spot_no_mezcla_bruto_y_supuesto():
+def test_totales_por_spot_usa_los_totales_sin_recorte_y_no_mezcla_bruto_y_supuesto():
     t = vm.totales_por_spot(_perfil())
-    assert t.loc[7400.0, "gex_bruto"] == pytest.approx(5.0) and t.loc[7400.0, "gex_sup"] == pytest.approx(0.0)
+    assert list(t.columns) == ["gex_bruto_total", "gex_sup_total"]
+    assert t.loc[7400.0].to_dict() == {"gex_bruto_total": 8.0, "gex_sup_total": -3.0}   # no la suma de lo guardado
+
+
+def test_perfil_viejo_sin_totales_grita_con_el_comando(tmp_path, monkeypatch):
+    from src import perfil_gamma as pg
+    monkeypatch.setattr(pg, "RUTA_PERFIL", str(tmp_path / "perfil_gamma_{}.parquet"))
+    _perfil().drop(columns=["gex_bruto_total", "gex_sup_total"]).to_parquet(tmp_path / "perfil_gamma_2026-11-06.parquet")
+    with pytest.raises(vm.SinDatos, match="--rehacer"):
+        vm.perfil("2026-11-06")
+
+
+def _ver(movs, err):
+    movs = np.asarray(movs, dtype=float)
+    return pd.DataFrame(dict(mov_pct=movs, mov_abs=np.abs(movs), err_recalculada=err, err_vieja=np.asarray(err) * 3))
 
 
 def test_banda_error_por_tramo():
-    v = pd.DataFrame(dict(mov_abs=[0.1, 0.2, 0.7, 1.5, 4.0], err_recalculada=[1.0, 3.0, 5.0, 6.0, 16.0],
-                          err_vieja=[4.0, 6.0, 10.0, 20.0, 30.0]))
-    assert vm.banda_error(v, -0.3) == dict(tramo="menos de 0,5%", n=2, err_recalculada=2.0, err_vieja=5.0, peor=3.0)
-    e = vm.banda_error(v, -4.4)
-    assert e["n"] == 2 and e["err_recalculada"] == 11.0 and e["peor"] == 16.0
-    assert np.isnan(vm.banda_error(v.iloc[:2], 2.0)["err_recalculada"])  # tramo vacío: nan, no un número inventado
+    v = _ver([-0.1, -0.2, -0.3, -0.7, -1.5, -1.6, -4.0], [1.0, 3.0, 2.0, 5.0, 6.0, 7.0, 16.0])
+    e = vm.banda_error(v, -0.25)
+    assert e["tramo"] == "menos de 0,5%" and e["n"] == 3 and e["err_recalculada"] == 2.0 and e["peor"] == 3.0
+    e = vm.banda_error(v, -1.5)                                          # 3 bajadas de 1,5% o más: hay banda
+    assert e["tramo"] == "1% o más" and e["n"] == 3 and e["err_recalculada"] == 7.0 and e["peor"] == 16.0
+    assert e["limite"] == 1.5
+    vacio = vm.banda_error(v.drop(index=3), -0.8)                        # sin pares de 0,5% a 1%
+    assert vacio["n"] == 0 and np.isnan(vacio["err_recalculada"])        # tramo vacío: nan, no un número inventado
+
+
+def test_limite_verificado_exige_pares_del_mismo_sentido():
+    v = _ver([-4.36, -2.02, -1.92, -1.82, 0.7, 1.31, 1.58, 2.35], [15.6, 4, 4, 4, 2, 4, 5, 6])
+    assert vm.limite_verificado(v, -1) == 1.92                           # el tercer mayor de las bajadas
+    assert vm.limite_verificado(v, 1) == 1.31
+    assert vm.limite_verificado(v.iloc[:2], -1) == 0.0                   # menos de MIN_PARES_BANDA: nada verificado
+
+
+def test_banda_error_no_presta_la_banda_mas_alla_de_lo_verificado():
+    v = _ver([-4.36, -2.02, -1.92, -1.82, 0.7, 1.31, 1.58, 2.35], [15.6, 4, 4, 4, 2, 4, 5, 6])
+    for mov in (-10.7, -4.0, -2.0):                                      # un par de −4,36% solo no alcanza
+        e = vm.banda_error(v, mov)
+        assert e["tramo"] == vm.SIN_VERIFICAR and e["n"] == 0 and e["limite"] == 1.92
+        assert np.isnan(e["err_recalculada"]) and np.isnan(e["err_vieja"]) and np.isnan(e["peor"])
+    assert vm.banda_error(v, 2.0)["tramo"] == vm.SIN_VERIFICAR           # al alza solo hay 3 pares hasta 1,31%
+    e = vm.banda_error(v, -1.9)                                          # banda solo con las bajadas del tramo
+    assert e["tramo"] == "1% o más" and e["sentido"] == "a la baja" and e["n"] == 4 and e["peor"] == 15.6
+    t = vm.banda_error(v, -1.9, exigir_cobertura=False)                  # la tabla: tramo entero, los dos sentidos
+    assert t["sentido"] == "ambos sentidos" and t["n"] == 7
+    assert vm.banda_error(v, 2.0, exigir_cobertura=False)["tramo"] == "1% o más"   # la tabla del panel: el tramo
 
 
 def test_resumen_local_separa_entre_dias_y_dentro_del_dia():

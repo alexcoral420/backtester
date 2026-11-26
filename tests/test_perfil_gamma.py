@@ -114,6 +114,26 @@ def test_error_prediccion_mide_el_cambio_de_vol():
     assert e["err_recalculada"] > 5 and e["sesgo_recalculada"] > 0     # subió la vol: la real es MENOR
 
 
+def test_rejilla_llega_a_6800_desde_el_cierre_mas_alto_con_el_tramo_completo():
+    S_alto = 7819.0                                                      # el mayor cierre de las fotos de oct-nov 2026
+    c = _cadena(S=S_alto, strikes=range(6400, 8501, 25))
+    p = pg.rejilla(c)
+    spots = sorted(p["spot"].unique())
+    assert spots[0] <= 6800 and S_alto in spots
+    assert all(s % pg.PASO_REJILLA == 0 for s in spots if s != S_alto)
+    zonas = p.loc[p["spot"] == spots[0], "zona"]
+    assert zonas.min() <= spots[0] - 250                                 # el radio de vista_medidas.mapa, entero
+    assert (p["zona"] - S_alto).abs().max() <= pg.ALCANCE_ZONAS
+    # totales por spot sobre TODAS las zonas, sumados antes del recorte (los strikes van de 6400 a 8500)
+    completo = pg.perfil(c, [spots[0]])
+    fila = p[p["spot"] == spots[0]].iloc[0]
+    assert fila["gex_bruto_total"] == pytest.approx(completo["gex_bruto"].sum(), rel=1e-12)
+    assert fila["gex_sup_total"] == pytest.approx(completo["gex_sup"].sum(), rel=1e-12)
+    assert fila["gex_bruto_total"] > p.loc[p["spot"] == spots[0], "gex_bruto"].sum()   # el recorte sí deja algo afuera
+    for col in ("gex_bruto_total", "gex_sup_total"):
+        pg.clase(col)
+
+
 def test_envejecimiento():
     c = _cadena()
     igual = pg.envejecimiento(c, S)

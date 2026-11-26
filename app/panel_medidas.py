@@ -192,6 +192,8 @@ with tab_gamma:
                                    value=min(rejilla, key=lambda x: abs(x - (S - 150))),
                                    format_func=lambda x: f"{x:,.0f}")
             mov = 100 * (spot / S - 1)
+            e = vm.banda_error(ver, mov) if ver is not None else None
+            sin_verificar = e is None or e["tramo"] == vm.SIN_VERIFICAR
             m = vm.mapa(p, spot)
             fig = go.Figure()
             for col, color, nombre in (("foto", VIOLETA_TENUE, f"en el cierre de la foto ({S:,.0f})"),
@@ -210,26 +212,57 @@ with tab_gamma:
             fig.update_yaxes(title_text="$B por 1% de movimiento (MODELO)", rangemode="tozero")
             base_layout(fig, 430, barmode="group", bargap=0.15,
                         title=f"Foto del {corto(fecha)}: gamma bruta por zona si el SPX va a {spot:,.0f} "
-                              f"({mov:+.1f}%) · MODELO, sin signo")
+                              f"({mov:+.1f}%) · MODELO, sin signo" + (" · SIN VERIFICAR" if sin_verificar else ""))
             st.plotly_chart(fig, width="stretch")
             top_f, top_r = set(m["foto"].nlargest(5).index), set(m["recalculada"].nlargest(5).index)
             texto = (f"Cobertura: {p['cobertura_pct'].iloc[0]:.1f}% del OI tiene volatilidad. De las 5 zonas con "
                      f"más gamma en este tramo según la foto, {len(top_f & top_r)} siguen entre las 5 al recalcular.")
-            if ver is not None:
-                e = vm.banda_error(ver, mov)
-                texto += (f" **Banda de error**: en movimientos de {e['tramo']} ({e['n']} pares verificados) la "
-                          f"recalculada se equivocó {e['err_recalculada']:.1f}% por zona (peor {e['peor']:.1f}%), "
-                          f"contra {e['err_vieja']:.1f}% de usar la foto sin recalcular.")
+            if e is None:
+                st.warning(f"**Sin verificación cargada**: esta gamma recalculada es MODELO sin banda de error. "
+                           f"{falta_ver}")
+            elif sin_verificar:
+                sentido = "a la baja" if mov < 0 else "al alza"
+                alcance = (f"con {vm.MIN_PARES_BANDA} pares o más de ese sentido, lo verificado llega a "
+                           f"{e['limite']:.2f}%" if e["limite"] > 0 else
+                           f"no hay {vm.MIN_PARES_BANDA} pares verificados {sentido}")
+                lado = ver[np.sign(ver["mov_pct"]) == (-1 if mov < 0 else 1)]
+                mayor = ""
+                if len(lado):
+                    g = lado.loc[lado["mov_abs"].idxmax()]
+                    mayor = (f" El mayor par {sentido} ({g['foto']} → {g['sig']}, {g['mov_pct']:+.1f}%) se equivocó "
+                             f"{g['err_recalculada']:.1f}% por zona (sesgo {g['sesgo']:+.1f}), un solo caso.")
+                st.warning(f"**Sin verificar**: un movimiento de {mov:+.2f}% pasa de lo verificado {sentido} "
+                           f"({alcance}). Esta gamma recalculada es MODELO sin banda de error: con la vol fija por "
+                           f"opción el error puede ir en cualquier sentido si la volatilidad cambia.{mayor}")
+            else:
+                texto += (f" **Banda de error** (medida de un cierre al siguiente: spot, plazo y vol del día "
+                          f"siguiente; este perfil es el mismo instante de la foto): en movimientos {e['sentido']} de {e['tramo']} "
+                          f"({e['n']} pares verificados) la recalculada se equivocó {e['err_recalculada']:.1f}% por "
+                          f"zona (peor {e['peor']:.1f}%), contra {e['err_vieja']:.1f}% de usar la foto sin "
+                          "recalcular.")
             st.caption(texto + " No incluye lo que vence el mismo día (0DTE).")
 
             tot = vm.totales_por_spot(p)
+            mov_spot = 100 * (tot.index.to_numpy() / S - 1)
+            if ver is not None:
+                lim_baja, lim_sube = vm.limite_verificado(ver, -1), vm.limite_verificado(ver, 1)
+                verificado = (mov_spot >= -lim_baja) & (mov_spot <= lim_sube)
+            else:
+                verificado = np.zeros(len(tot), dtype=bool)
             fs = go.Figure(go.Bar(
-                x=tot.index, y=tot["gex_sup"], width=18,
-                marker=dict(color=np.where(tot["gex_sup"] >= 0, POSITIVO, NEGATIVO),
-                            pattern=patron_clase(vm.clase("gex_sup"))),
-                customdata=tot["gex_bruto"],
-                hovertemplate=("SPX %{x:,.0f} · neto %{y:+.1f} $B (SUPUESTO)"
-                               "<br>bruto %{customdata:.0f} $B (MODELO)<extra></extra>")))
+                x=tot.index, y=tot["gex_sup_total"], width=18,
+                marker=dict(color=np.where(tot["gex_sup_total"] >= 0, POSITIVO, NEGATIVO),
+                            pattern=patron_clase(vm.clase("gex_sup_total"))),
+                customdata=np.column_stack([tot["gex_bruto_total"],
+                                            np.where(verificado, "verificado", "SIN VERIFICAR")]),
+                hovertemplate=("SPX %{x:,.0f} · neto %{y:+.1f} $B (SUPUESTO, gamma %{customdata[1]})"
+                               "<br>bruto %{customdata[0]:.0f} $B (MODELO, %{customdata[1]})<extra></extra>")))
+            if ver is not None:
+                for x0, x1 in ((tot.index.min() - 12.5, S * (1 - lim_baja / 100)),
+                               (S * (1 + lim_sube / 100), tot.index.max() + 12.5)):
+                    if x1 > x0:
+                        fs.add_vrect(x0=x0, x1=x1, fillcolor=TINTA_SUAVE, opacity=0.10, line_width=0,
+                                     annotation_text="MODELO sin verificar", annotation_position="top")
             fs.add_hline(y=0, line=dict(color=TINTA_SUAVE, width=1))
             fs.add_vline(x=S, line=dict(color=TINTA_SUAVE, width=1), annotation_text="cierre de la foto",
                          annotation_position="top left", annotation_bgcolor=SUPERFICIE)
@@ -240,7 +273,9 @@ with tab_gamma:
             st.plotly_chart(fs, width="stretch")
             st.caption("El neto es la resta de dos números grandes con un signo **SUPUESTO**: el precio donde "
                        "cruza cero solo vale si el supuesto vale. Un caso, no una prueba: en la foto del 4-nov era "
-                       "positivo y el día siguiente el SPX cayó 335 pts.")
+                       "positivo y el día siguiente el SPX cayó 335 pts. Suma todas las zonas de la foto. En la "
+                       "franja sombreada, además, la gamma recalculada que forma el neto es MODELO sin verificar "
+                       f"(menos de {vm.MIN_PARES_BANDA} pares verificados de ese sentido y de ese tamaño).")
 
 # ---------------------------------------------------------------- 3. verificación (MODELO contra la foto real)
 with tab_ver:
@@ -263,7 +298,7 @@ with tab_ver:
         st.plotly_chart(fig, width="stretch")
         filas = []
         for nombre, mov in (("menos de 0,5%", 0.1), ("0,5% a 1%", 0.7), ("1% o más", 2.0)):
-            e = vm.banda_error(ver, mov)
+            e = vm.banda_error(ver, mov, exigir_cobertura=False)        # resumen del tramo, no un precio hipotético
             filas.append({"movimiento": nombre, "pares": e["n"],
                           f"recalculada, mediana % [{rotulo('err_recalculada')}]": e["err_recalculada"],
                           f"recalculada, peor % [{rotulo('err_recalculada')}]": e["peor"],

@@ -33,8 +33,8 @@ MEDIDAS = ["straddle", "ancho", "impl_pct", "impl_prev_pct", "rango_hoy_pct", "r
            "dispersion", "K", "dist_FK", "call", "put"]
 MODELO = ["gex_bruto", "gex_bruto_c", "gex_bruto_p", "gex_bruto_B", "gex_local_B", "err_recalculada", "err_vieja",
           "sesgo", "top5_que_siguen", "rho_recalculada", "rho_vieja", "cubierto_pct", "cobertura_pct", "foto",
-          "recalculada"]                # foto / recalculada: las dos columnas de mapa() (gamma bruta por zona)
-SUPUESTAS = ["gex_sup", "gex_sup_B", "gex_abs_B"]
+          "recalculada", "gex_bruto_total"]   # foto / recalculada: las dos columnas de mapa() (gamma bruta por zona)
+SUPUESTAS = ["gex_sup", "gex_sup_B", "gex_abs_B", "gex_sup_total"]
 CLAVES = ["fecha", "sig", "venc", "t", "spot", "zona"]      # identifican la fila, no son mediciones
 CLAVES_VERIFICACION = ["foto", "sig"]                       # en gamma_verificacion.csv 'foto' es la fecha de la foto
 NOMBRE = {"impl_pct": "straddle de la víspera", "impl_prev_pct": "straddle de la víspera",
@@ -96,7 +96,11 @@ def perfil(fecha: str) -> pd.DataFrame:
     ruta = pg.RUTA_PERFIL.format(fecha)
     if not os.path.exists(ruta):
         raise SinDatos(f"Falta {ruta}. Se genera con: python scripts/perfil_gamma.py --todas")
-    return pd.read_parquet(ruta)
+    p = pd.read_parquet(ruta)
+    if not {"gex_bruto_total", "gex_sup_total"} <= set(p.columns):
+        raise SinDatos(f"{ruta} es de una versión vieja (sin los totales por spot). "
+                       "Se regenera con: python scripts/perfil_gamma.py --todas --rehacer")
+    return p
 
 
 def mapa(p: pd.DataFrame, spot: float, radio: float = 250) -> pd.DataFrame:
@@ -110,8 +114,10 @@ def mapa(p: pd.DataFrame, spot: float, radio: float = 250) -> pd.DataFrame:
 
 
 def totales_por_spot(p: pd.DataFrame) -> pd.DataFrame:
-    """Por spot hipotético: gex_bruto (MODELO) y gex_sup (SUPUESTO), en $B, sobre las zonas guardadas."""
-    return p.groupby("spot")[["gex_bruto", "gex_sup"]].sum() / 1e9
+    """Por spot hipotético: gex_bruto_total (MODELO) y gex_sup_total (SUPUESTO), en $B, sobre TODAS las zonas
+    (perfil_gamma.rejilla los suma antes de recortar a ALCANCE_ZONAS). Sumar las zonas guardadas recortaría
+    en forma asimétrica en los extremos: faltarían sobre todo puts abajo y calls arriba."""
+    return p.groupby("spot")[["gex_bruto_total", "gex_sup_total"]].first() / 1e9
 
 
 # ---------------------------------------------------------------- verificación (MODELO contra la foto real)
@@ -122,16 +128,43 @@ def verificacion() -> pd.DataFrame:
     return t.sort_values("foto").reset_index(drop=True)
 
 
-def banda_error(v: pd.DataFrame, mov_pct: float) -> dict:
+MIN_PARES_BANDA = 3          # pares verificados del MISMO sentido y de ese tamaño o mayor para que haya banda
+SIN_VERIFICAR = "sin verificar"
+
+
+def limite_verificado(v: pd.DataFrame, sentido: int) -> float:
+    """Mayor |movimiento| (%) en ese sentido (+1 sube, −1 baja) que tiene al menos MIN_PARES_BANDA pares
+    verificados del mismo sentido y de ese tamaño o mayor. 0 si no hay tantos pares en ese sentido.
+    Un solo par grande no alcanza: no dice si su error es típico (el 11-04→11-05, −4,4%, se equivocó 15,6%)."""
+    x = v.loc[np.sign(v["mov_pct"]) == sentido, "mov_abs"].sort_values(ascending=False)
+    return float(x.iloc[MIN_PARES_BANDA - 1]) if len(x) >= MIN_PARES_BANDA else 0.0
+
+
+def banda_error(v: pd.DataFrame, mov_pct: float, exigir_cobertura: bool = True) -> dict:
     """Error típico de la gamma recalculada para un movimiento de ese tamaño (los tres tramos de
-    verificar_gamma). n = pares en el tramo; con menos de 5 la mediana no dice mucho."""
+    verificar_gamma). n = pares en el tramo; con menos de 5 la mediana no dice mucho.
+    Con exigir_cobertura (lo que usa el precio hipotético): si el movimiento pasa del limite_verificado de su
+    sentido no hay banda (tramo SIN_VERIFICAR, n = 0, nan). Prestarle la mediana del tramo "1% o más", hecha
+    con movimientos más chicos o del otro sentido, sería un número que susurra.
+    Con cobertura, la banda sale solo de los pares del tramo en el MISMO sentido (sentido = "a la baja" /
+    "al alza"); sin cobertura, del tramo entero en los dos sentidos (sentido = "ambos sentidos").
+    exigir_cobertura=False: solo el resumen del tramo (la tabla de la pestaña verificación)."""
     m = abs(mov_pct)
+    signo = -1 if mov_pct < 0 else 1
+    limite = limite_verificado(v, signo)
+    if exigir_cobertura and m > limite:
+        return dict(tramo=SIN_VERIFICAR, n=0, err_recalculada=np.nan, err_vieja=np.nan, peor=np.nan, limite=limite,
+                    sentido="a la baja" if signo < 0 else "al alza")
+    if exigir_cobertura:
+        v, sentido = v[np.sign(v["mov_pct"]) == signo], ("a la baja" if signo < 0 else "al alza")
+    else:
+        sentido = "ambos sentidos"
     tramo, x = (("menos de 0,5%", v[v["mov_abs"] < 0.5]) if m < 0.5 else
                 ("0,5% a 1%", v[(v["mov_abs"] >= 0.5) & (v["mov_abs"] < 1)]) if m < 1 else
                 ("1% o más", v[v["mov_abs"] >= 1]))
     return dict(tramo=tramo, n=len(x), err_recalculada=float(x["err_recalculada"].median()) if len(x) else np.nan,
                 err_vieja=float(x["err_vieja"].median()) if len(x) else np.nan,
-                peor=float(x["err_recalculada"].max()) if len(x) else np.nan)
+                peor=float(x["err_recalculada"].max()) if len(x) else np.nan, limite=limite, sentido=sentido)
 
 
 # ---------------------------------------------------------------- gamma intradía (MODELO contra MEDIDO)

@@ -9,8 +9,10 @@ El mapa de gamma de la foto de FECHA recalculado a otros precios (src/perfil_gam
 La banda de error de un perfil recalculado la da scripts/verificar_gamma.py.
 
       python scripts/perfil_gamma.py --todas                          (solo guarda la rejilla de cada foto)
+      python scripts/perfil_gamma.py --todas --rehacer                (recalcula también las ya guardadas)
 Cada corrida guarda la rejilla zona × spot en data/procesado/perfil_gamma_FECHA.parquet: es lo que lee
-app/panel_medidas.py, que no recalcula nada.
+app/panel_medidas.py, que no recalcula nada. --todas salta las rejillas que ya existen; tras cambiar
+ALCANCE_REJILLA / ALCANCE_ZONAS hace falta --rehacer para que las fotos viejas tomen el rango nuevo.
 """
 import os
 import sys
@@ -35,8 +37,12 @@ def guardar(fecha, c):
 
 if sys.argv[1] == "--todas":
     from src.odte import vista
+    extra = set(sys.argv[2:]) - {"--rehacer"}
+    if extra:
+        raise SystemExit(f"--todas solo acepta --rehacer (sobra: {' '.join(sorted(extra))})")
+    rehacer = "--rehacer" in sys.argv[2:]
     for f in vista.fotos():
-        if os.path.exists(pg.RUTA_PERFIL.format(f)):
+        if os.path.exists(pg.RUTA_PERFIL.format(f)) and not rehacer:
             continue
         try:
             guardar(f, pg.insumos(f, TASA_LIBRE_RIESGO))

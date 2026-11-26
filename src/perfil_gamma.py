@@ -35,10 +35,14 @@ ANIO_SEG = 365 * 24 * 3600
 PROCESADO = "data/procesado/cadena_SPX+SPXW_horas_{}.parquet"
 RAICES, PLAZO = ("SPX", "SPXW"), "horas"
 RUTA_PERFIL = "data/procesado/perfil_gamma_{}.parquet"      # rejilla zona × spot ya calculada (la lee el panel)
-PASO_REJILLA, ALCANCE_REJILLA, ALCANCE_ZONAS = 25, 400, 600
+# Rejilla: ±1050 pts del cierre para que toda foto (cierre máximo 7819 en oct-nov 2026) llegue a 6800; zonas hasta
+# 1050 + 250 (el radio de vista_medidas.mapa) para que el precio hipotético del extremo tenga su tramo completo.
+# Más allá del mayor movimiento verificado (verificar_gamma) el recálculo NO tiene banda: vista_medidas.banda_error.
+PASO_REJILLA, ALCANCE_REJILLA, ALCANCE_ZONAS = 25, 1050, 1300
 
-MODELO = ["gamma_s2", "gex_bruto", "gex_bruto_c", "gex_bruto_p", "gex_bruto_local", "real", "recalculada", "vieja"]
-SUPUESTAS = ["gex_sup"]
+MODELO = ["gamma_s2", "gex_bruto", "gex_bruto_c", "gex_bruto_p", "gex_bruto_local", "real", "recalculada", "vieja",
+          "gex_bruto_total"]
+SUPUESTAS = ["gex_sup", "gex_sup_total"]
 
 
 def clase(columna):
@@ -133,12 +137,17 @@ def perfil(c: pd.DataFrame, spots, avance: float = 0.0, banda: int = BANDA) -> p
 
 def rejilla(c: pd.DataFrame) -> pd.DataFrame:
     """El perfil en una rejilla fija de spots (múltiplos de PASO_REJILLA a <= ALCANCE_REJILLA del cierre, más
-    el cierre mismo), zonas a <= ALCANCE_ZONAS. Lleva S (el spot de la foto) y cobertura_pct en cada fila.
+    el cierre mismo), zonas a <= ALCANCE_ZONAS. Lleva S (el spot de la foto) y cobertura_pct en cada fila, y los
+    totales por spot sobre TODAS las zonas (gex_bruto_total MODELO, gex_sup_total SUPUESTO), sumados antes del
+    recorte: si no, en los spots del extremo faltarían sobre todo puts (abajo) o calls (arriba).
     Es lo que se guarda en RUTA_PERFIL para que el panel dibuje sin recalcular (ni necesitar config)."""
     S = float(c["S"].iloc[0])
     lo = int(np.ceil((S - ALCANCE_REJILLA) / PASO_REJILLA)) * PASO_REJILLA
     spots = sorted(set(range(lo, int(S + ALCANCE_REJILLA) + 1, PASO_REJILLA)) | {S})
     p = perfil(c, spots)
+    tot = p.groupby("spot")[["gex_bruto", "gex_sup"]].sum()            # TODAS las zonas, antes de recortar
+    p["gex_bruto_total"] = p["spot"].map(tot["gex_bruto"])
+    p["gex_sup_total"] = p["spot"].map(tot["gex_sup"])
     p = p[(p["zona"] - S).abs() <= ALCANCE_ZONAS].reset_index(drop=True)
     p["S"], p["cobertura_pct"] = S, cobertura(c)
     return p
